@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package diode.proto;
+
+// EncodedPacket: Encoded data packet
+message EncodedPacket {
+  string transfer_id = 1;              // Which transfer
+  int32 window_id = 2;                 // Which window
+  int32 pass_id = 3;                   // Which encoding pass (0, 1, 2, ...)
+  int32 packet_id = 4;                 // Sequence number within pass
+  int32 fountain_degree = 5;           // Degree of XOR combinations
+  int64 fountain_seed = 6;             // PRNG seed for degree selection
+  bytes payload = 7;                   // Encoded data
+  uint32 crc32c = 8;                   // CRC32C of payload (fast integrity)
+  bytes blake3_mac = 9;                // BLAKE3-MAC of metadata+payload
+}
