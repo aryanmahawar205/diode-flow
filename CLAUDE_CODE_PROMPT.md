@@ -1,12 +1,3 @@
-# Data Diode — Master Build Prompt for Claude Code
-# =============================================================================
-# Give this entire file to Claude Code at the start of the project.
-# It contains everything needed: architecture, reasoning, module specs,
-# file structure, implementation phases, and coding standards.
-# =============================================================================
-
----
-
 ## WHAT YOU ARE BUILDING
 
 A **software-only Data Diode system** implemented in Python.
