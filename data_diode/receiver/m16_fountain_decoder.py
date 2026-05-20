@@ -69,7 +69,7 @@ class FountainDecoderWrapper:
 
         if not pooled_packets:
             logger.warning("No packets to decode")
-            return DecodeResult(chunks=[], stats={})
+            return DecodeResult(chunks=[], missing_ids=list(range(K)), success=False)
 
         # Convert pooled packets to decoder format
         # Decoder expects list of (degree, seed, payload) tuples
@@ -84,7 +84,8 @@ class FountainDecoderWrapper:
         except Exception as e:
             logger.error(f"Fountain decoder error: {e}")
             # Return partial result (all None)
-            return DecodeResult(chunks=[None] * K, stats={"error": str(e)})
+            missing = list(range(K))
+            return DecodeResult(chunks=[None] * K, missing_ids=missing, success=False)
 
     def decode_multi_pass(
         self,
@@ -108,7 +109,8 @@ class FountainDecoderWrapper:
         """
         if not pooled_packets_by_pass:
             logger.warning("No passes with packets")
-            return DecodeResult(chunks=[None] * K, stats={})
+            missing = list(range(K))
+            return DecodeResult(chunks=[None] * K, missing_ids=missing, success=False)
 
         combined_chunks = [None] * K
         total_recovered = 0
@@ -156,5 +158,6 @@ class FountainDecoderWrapper:
             "chunks_recovered": chunks_recovered,
             "chunks_missing": chunks_missing,
             "recovery_rate": chunks_recovered / len(result.chunks) if result.chunks else 0.0,
-            "decoder_stats": result.stats,
+            "success": result.success,
+            "missing_ids": result.missing_ids,
         }
