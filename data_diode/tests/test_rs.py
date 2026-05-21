@@ -102,13 +102,19 @@ class TestRSEncoding:
         with pytest.raises(ValueError):
             encode_with_rs(chunks, cfg)
     
-    def test_encode_too_many_chunks(self):
-        """Test K > RS config k."""
+    def test_encode_handles_multiple_blocks(self):
+        """Test that chunks > k are handled by splitting into blocks."""
         chunks = [b"x" * 100 for _ in range(20)]
         cfg = RSConfig(n=16, k=10)
         
-        with pytest.raises(ValueError):
-            encode_with_rs(chunks, cfg)
+        # Should produce 2 blocks of 16 (10 data + 6 parity each) = 32 chunks
+        result = encode_with_rs(chunks, cfg)
+        assert len(result) == 32
+        # Check first 10 are original
+        assert result[0:10] == chunks[0:10]
+        # Next 6 are parity for first block
+        # Next 10 are original 10-20
+        assert result[16:26] == chunks[10:20]
 
 
 class TestRSDecoding:

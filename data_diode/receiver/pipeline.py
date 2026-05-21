@@ -99,6 +99,8 @@ def run_receiver(
     completed_transfers: Set[str] = set()
 
     try:
+        last_periodic_check = time.time()
+        
         while not quit_event.is_set():
             # 1. Drain the queue into pools
             dirty_windows = set()
@@ -136,7 +138,16 @@ def run_receiver(
                 except Exception:
                     continue
 
-            if processed_in_batch == 0:
+            # Periodic check for all active windows (every 2 seconds)
+            # This ensures that even if no new packets arrived, we still try to decode
+            # if we have enough packets but didn't hit a trigger_interval.
+            if time.time() - last_periodic_check > 2.0:
+                for tid, session in active_transfers.items():
+                    for wid in range(session.manifest.total_windows):
+                        dirty_windows.add((tid, wid))
+                last_periodic_check = time.time()
+
+            if processed_in_batch == 0 and not dirty_windows:
                 time.sleep(0.01)
                 continue
 
@@ -163,12 +174,26 @@ def run_receiver(
                 num_blocks = (W + manifest.rs_k - 1) // manifest.rs_k
                 K_fountain = num_blocks * manifest.rs_n
                 
-                min_packets = int(K_fountain * 1.05)
+                min_packets = int(K_fountain * 1.02) # Try slightly earlier
                 last_attempt = getattr(window_session, "last_attempt_count", 0)
-                trigger_interval = 100 if K_fountain < 1000 else 200
+                last_attempt_time = getattr(window_session, "last_attempt_time", 0)
                 
-                if len(window_packets) >= min_packets and (len(window_packets) >= last_attempt + trigger_interval):
+                # Adaptive trigger interval: 2% of K, but between 20 and 500 packets
+                trigger_interval = max(20, min(500, K_fountain // 50))
+                
+                # Try decode if:
+                # 1. We hit a new adaptive packet count threshold
+                # 2. It's been more than 5 seconds since the last attempt and we have enough packets
+                should_trigger = False
+                if len(window_packets) >= min_packets:
+                    if len(window_packets) >= last_attempt + trigger_interval:
+                        should_trigger = True
+                    elif time.time() - last_attempt_time > 5.0:
+                        should_trigger = True
+
+                if should_trigger:
                     window_session.last_attempt_count = len(window_packets)
+                    window_session.last_attempt_time = time.time()
                     logger.info(f"Decoding window {window_id} ({len(window_packets)} packets, K={K_fountain})")
                     
                     decoder = FountainDecoderWrapper("lt")
