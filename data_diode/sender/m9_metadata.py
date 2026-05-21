@@ -64,11 +64,17 @@ def compute_blake3_mac(data: bytes, shared_secret: bytes) -> bytes:
     
     Args:
         data: Bytes to MAC
-        shared_secret: Pre-shared symmetric key (typically 32 bytes)
+        shared_secret: Pre-shared symmetric key (must be exactly 32 bytes)
     
     Returns:
         BLAKE3-MAC as 32-byte digest
+    
+    Raises:
+        ValueError: If shared_secret is not 32 bytes
     """
+    if len(shared_secret) != 32:
+        raise ValueError(f"shared_secret must be exactly 32 bytes, got {len(shared_secret)}")
+    
     h = blake3.blake3(key=shared_secret)
     h.update(data)
     return h.digest()

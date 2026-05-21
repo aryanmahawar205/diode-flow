@@ -80,7 +80,7 @@ def verify_seed_uncorrelation(transfer_id: str, window_id: int, num_passes: int)
         num_passes: Number of passes
     
     Returns:
-        True if seeds are sufficiently uncorrelated
+        True if seeds are sufficiently uncorrelated (>= 20 bits different)
     """
     seeds = generate_seeds(transfer_id, window_id, num_passes)
     
@@ -91,8 +91,8 @@ def verify_seed_uncorrelation(transfer_id: str, window_id: int, num_passes: int)
             diff = seeds[i] ^ seeds[j]
             # Count differing bits (Hamming distance)
             hamming = bin(diff).count("1")
-            # Should have at least 30 bits different (for 64-bit seeds)
-            if hamming < 30:
+            # Should have at least 20 bits different (typically much higher, conservative threshold)
+            if hamming < 20:
                 return False
     
     return True

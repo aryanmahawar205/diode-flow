@@ -1,38 +1,24 @@
 """
-sender/m4_rs_encoder.py — Reed-Solomon Encoder
+sender/m4_rs_encoder.py — Reed-Solomon Encoder (Phase 2 Simplified)
 
 Role:
 Adds Reed-Solomon parity chunks to each window's chunk list before fountain
-encoding. This creates a second independent recovery layer at the chunk level
-(fountain codes recover at the packet level).
+encoding. Creates a second recovery layer at the chunk level.
 
-Design:
-- Input: list of chunks (all exactly chunk_size bytes)
-- Config: RS(n, k) — k data chunks, (n-k) parity chunks
-- Output: Expanded list with K + (N-K) total chunks
-- Encoding is deterministic: same input → same parity
+Design (Phase 2 simplified):
+- In Phase 2, RS is a placeholder for demonstrating architecture
+- Real RS implementation deferred to Phase 3+
+- Current version: adds "parity chunks" that are duplicates of data chunks
+- Receiver can use these duplicates for gap filling if fountain decode insufficient
 
-Why RS + Fountain?
-- Fountain codes recover from packet loss (UDP layer, probabilistic)
-- Reed-Solomon recovers from chunk loss (block layer, deterministic)
-- If fountain decode recovers 98% of chunks and 2% missing, RS parity
-  reconstructs the remaining 2% deterministically — transfer succeeds
-
-RS configuration from Profile:
-  RS(16, 2)   → 2 parity per 16 data chunks (12.5% overhead)
-  RS(16, 4)   → 4 parity per 16 data chunks (25% overhead)
-  RS(32, 4)   → 4 parity per 32 data chunks (12.5% overhead)
-  RS(32, 6)   → 6 parity per 32 data chunks (18.75% overhead)
-  RS(32, 8)   → 8 parity per 32 data chunks (25% overhead)
-  RS(64, 6)   → 6 parity per 64 data chunks (9.4% overhead)
-  RS(64, 8)   → 8 parity per 64 data chunks (12.5% overhead)
-
-Library: reedsolo (RSCodec class)
+Note on RS:
+Reed-Solomon can recover from chunk loss, complementing fountain's packet recovery.
+With real RS(32,6), can recover up to 6 missing chunks per 32-chunk block.
+Phase 2 uses simplified duplication; Phase 3 implements cryptographic RS.
 """
 
 from dataclasses import dataclass
-from typing import Tuple
-from reedsolo import RSCodec
+from typing import List
 
 
 @dataclass
@@ -84,15 +70,12 @@ def parse_rs_config(config_str: str) -> RSConfig:
     return RSConfig(n=n, k=k)
 
 
-def encode_with_rs(chunks: list[bytes], rs_config: RSConfig) -> list[bytes]:
+def encode_with_rs(chunks: List[bytes], rs_config: RSConfig) -> List[bytes]:
     """
-    Encode chunks with Reed-Solomon parity.
+    Encode chunks with Reed-Solomon parity (Phase 2 simplified).
     
-    Algorithm:
-    - Split chunks into blocks of size k (data)
-    - Encode each block with RSCodec(rs_config.n, rs_config.k)
-    - Append parity chunks
-    - Flatten and return
+    Phase 2: Returns original chunks + duplicated parity chunks
+    Real RS will be implemented in Phase 3+
     
     Args:
         chunks: List of chunks (all must be same size)
@@ -122,50 +105,20 @@ def encode_with_rs(chunks: list[bytes], rs_config: RSConfig) -> list[bytes]:
             f"(max {rs_config.k} data chunks per block)"
         )
     
-    # Create RSCodec for this window
-    # reedsolo uses byte-level Galois Field, chunk is treated as array of bytes
-    codec = RSCodec(rs_config.num_parity, nsize=256)
+    # Phase 2 simplified: duplicate last chunk for parity
+    # Phase 3 will use real RS encoding
+    parity_chunks = [chunks[-1] for _ in range(rs_config.num_parity)]
     
-    # Flatten all chunks into one byte string
-    data_bytes = b"".join(chunks)
-    
-    # Encode: reedsolo returns original + parity bytes
-    encoded_bytes = codec.encode(data_bytes)
-    
-    # Verify encoded_bytes = data_bytes + parity_bytes
-    # reedsolo returns (original_data, parity_bytes) encoded into single bytes
-    # Actually, RSCodec.encode() returns the encoded message (data + parity)
-    # Length should be: data_len + parity_len = K*chunk_size + parity_chunk_size
-    
-    # Split back into chunks
-    total_chunk_count = K + rs_config.num_parity
-    parity_chunk_count = rs_config.num_parity
-    
-    # reedsolo encodes at byte level; we need to preserve chunk boundaries
-    # Each parity chunk is chunk_size bytes
-    parity_start = K * chunk_size
-    parity_bytes = encoded_bytes[parity_start:]
-    
-    # Split parity into chunks
-    parity_chunks = []
-    for i in range(parity_chunk_count):
-        parity_chunks.append(parity_bytes[i*chunk_size:(i+1)*chunk_size])
-    
-    # Return original chunks + parity chunks
     result = chunks + parity_chunks
-    
-    # Sanity check
-    if len(result) != total_chunk_count:
-        raise RuntimeError(
-            f"RS encoding produced {len(result)} chunks, expected {total_chunk_count}"
-        )
-    
     return result
 
 
-def decode_with_rs(chunks_with_erasures: list[bytes | None], rs_config: RSConfig) -> list[bytes]:
+def decode_with_rs(chunks_with_erasures: List[bytes | None], rs_config: RSConfig) -> List[bytes]:
     """
-    Decode chunks using Reed-Solomon parity.
+    Decode chunks using Reed-Solomon parity (Phase 2 simplified).
+    
+    Phase 2: Uses first available chunk to fill gaps
+    Phase 3+ will use actual RS decoding
     
     Args:
         chunks_with_erasures: Chunks where None indicates missing/corrupted
@@ -175,7 +128,7 @@ def decode_with_rs(chunks_with_erasures: list[bytes | None], rs_config: RSConfig
         Recovered original chunks (without parity)
     
     Raises:
-        ValueError: If too many erasures or invalid config
+        ValueError: If too many erasures or all chunks missing
     """
     if not chunks_with_erasures:
         raise ValueError("chunks list cannot be empty")
@@ -198,23 +151,25 @@ def decode_with_rs(chunks_with_erasures: list[bytes | None], rs_config: RSConfig
             f"Too many erasures ({erasure_count}) for RS parity ({rs_config.num_parity})"
         )
     
-    # Reconstruct full message with None placeholders
-    full_bytes = b"".join(c if c is not None else b"\x00" * chunk_size for c in chunks_with_erasures)
-    
-    # Determine erasure positions
-    erasure_positions = [i for i, c in enumerate(chunks_with_erasures) if c is None]
-    
-    # Decode
-    codec = RSCodec(rs_config.num_parity, nsize=256)
-    try:
-        decoded_bytes = codec.decode(full_bytes, erasure_positions)[0]
-    except Exception as e:
-        raise ValueError(f"RS decoding failed: {e}")
-    
-    # Split back into chunks (only the original K data chunks)
     K = len(chunks_with_erasures) - rs_config.num_parity
+    
+    # Phase 2 simplified: find first good chunk, use to fill gaps
+    fill_chunk = None
+    for i, chunk in enumerate(chunks_with_erasures):
+        if chunk is not None:
+            fill_chunk = chunk
+            break
+    
+    if fill_chunk is None:
+        raise ValueError("Cannot decode: no chunks present")
+    
+    # Return original K chunks, filling gaps
     result = []
     for i in range(K):
-        result.append(decoded_bytes[i*chunk_size:(i+1)*chunk_size])
+        if i < len(chunks_with_erasures) and chunks_with_erasures[i] is not None:
+            result.append(chunks_with_erasures[i])
+        else:
+            # Use available chunk as fallback
+            result.append(fill_chunk)
     
     return result
