@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from common.models import (
+from data_diode.common.models import (
     TransferManifest,
     WindowManifest,
     EncodedPacketMetadata,
@@ -29,7 +29,7 @@ from common.models import (
     TransferDecodeSession,
     LossScenario,
 )
-from common.config import (
+from data_diode.common.config import (
     get_profile,
     compute_chunk_count,
     compute_window_count,
@@ -37,7 +37,7 @@ from common.config import (
     MAX_CHUNKS_PER_WINDOW,
     PROFILES,
 )
-from sender.m2_chunker import chunk_window, analyze_file, ChunkerResult
+from data_diode.sender.m2_chunker import chunk_window, analyze_file, ChunkerResult
 
 
 class TestModels:

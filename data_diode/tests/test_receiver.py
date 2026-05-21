@@ -16,10 +16,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from receiver.m16_fountain_decoder import FountainDecoderWrapper
-from receiver.m20_file_reassembler import FileReassembler
-from receiver.m21_verifier import FileVerifier, MerkleVerifier
-from receiver.m15_pooler import PooledPacket
+from data_diode.receiver.m16_fountain_decoder import FountainDecoderWrapper
+from data_diode.receiver.m20_file_reassembler import FileReassembler
+from data_diode.receiver.m21_verifier import FileVerifier, MerkleVerifier
+from data_diode.receiver.m15_pooler import PooledPacket
 
 
 class TestFountainDecoderWrapper:
@@ -54,7 +54,7 @@ class TestFountainDecoderWrapper:
 
     def test_recovery_stats(self):
         """Extract recovery statistics."""
-        from fountain.interface import DecodeResult
+        from data_diode.fountain.interface import DecodeResult
 
         wrapper = FountainDecoderWrapper("lt")
         result = DecodeResult(chunks=[b"chunk1", None, b"chunk3"], missing_ids=[1], success=False)

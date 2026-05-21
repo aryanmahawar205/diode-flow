@@ -15,7 +15,7 @@ Modifying this file propagates to all modules automatically.
 
 from __future__ import annotations
 
-from common.models import TransferProfile
+from .models import TransferProfile
 
 # ==============================================================================
 # PROTOCOL VERSION (schema versioning for forward compatibility)
@@ -95,27 +95,27 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
     # Small files (< 10 MB)
     ("small", "standard"):    TransferProfile(
         num_passes=1,
-        overhead_ratio=0.20,
-        rs_n=16,
-        rs_k=2,
+        overhead_ratio=0.50,
+        rs_n=255,
+        rs_k=250,
         interleave_depth=2,
         header_redundancy=3,
         window_size_bytes=64 * 1024 * 1024,
     ),
     ("small", "critical"):    TransferProfile(
-        num_passes=2,
-        overhead_ratio=0.20,
-        rs_n=16,
-        rs_k=4,
+        num_passes=1,
+        overhead_ratio=0.60,
+        rs_n=255,
+        rs_k=250,
         interleave_depth=3,
         header_redundancy=5,
         window_size_bytes=64 * 1024 * 1024,
     ),
     ("small", "classified"):  TransferProfile(
-        num_passes=3,
-        overhead_ratio=0.30,
-        rs_n=32,
-        rs_k=8,
+        num_passes=1,
+        overhead_ratio=0.80,
+        rs_n=255,
+        rs_k=250,
         interleave_depth=4,
         header_redundancy=7,
         window_size_bytes=64 * 1024 * 1024,
@@ -129,7 +129,7 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_k=4,
         interleave_depth=4,
         header_redundancy=3,
-        window_size_bytes=64 * 1024 * 1024,
+        window_size_bytes=100 * 1024,
     ),
     ("medium", "critical"):   TransferProfile(
         num_passes=3,
@@ -138,7 +138,7 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_k=6,
         interleave_depth=5,
         header_redundancy=5,
-        window_size_bytes=64 * 1024 * 1024,
+        window_size_bytes=100 * 1024,
     ),
     ("medium", "classified"): TransferProfile(
         num_passes=3,
@@ -147,7 +147,7 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_k=8,
         interleave_depth=6,
         header_redundancy=7,
-        window_size_bytes=64 * 1024 * 1024,
+        window_size_bytes=100 * 1024,
     ),
 
     # Large files (> 1 GB)

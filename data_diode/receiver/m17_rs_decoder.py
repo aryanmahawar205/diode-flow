@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from sender.m4_rs_encoder import RSConfig, decode_with_rs
+from data_diode.sender.m4_rs_encoder import RSConfig, decode_with_rs
 
 logger = logging.getLogger(__name__)
 

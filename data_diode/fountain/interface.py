@@ -37,10 +37,18 @@ class EncodedPacket:
         degree: Number of source chunks XORed into this packet.
         seed: PRNG seed used to select which chunks to XOR.
         data: The XORed chunk data (bytes).
+        transfer_id: Transfer UUID (optional for basic encoder)
+        window_id: Window index (optional for basic encoder)
+        pass_id: Encoding pass index (optional for basic encoder)
+        packet_id: Sequence number within pass (optional for basic encoder)
     """
     degree: int
     seed: int
     data: bytes
+    transfer_id: str = ""
+    window_id: int = 0
+    pass_id: int = 0
+    packet_id: int = 0
 
 
 @dataclass

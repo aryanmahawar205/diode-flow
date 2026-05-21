@@ -24,10 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from sender.m11_transmitter import Transmitter, TransmitterConfig
-from receiver.m12_receiver import Receiver, ReceiverConfig, PacketEntry
-from receiver.m13_validator import PacketValidator, ManifestValidator, ValidationError
-from receiver.m15_pooler import PacketPool, PooledPacket
+from data_diode.sender.m11_transmitter import Transmitter, TransmitterConfig
+from data_diode.receiver.m12_receiver import Receiver, ReceiverConfig, PacketEntry
+from data_diode.receiver.m13_validator import PacketValidator, ManifestValidator, ValidationError
+from data_diode.receiver.m15_pooler import PacketPool, PooledPacket
 
 
 class TestTransmitter:

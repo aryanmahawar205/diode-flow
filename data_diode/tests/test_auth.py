@@ -11,7 +11,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from cryptography.hazmat.primitives import serialization
-from receiver.m14_auth_verifier import (
+from data_diode.receiver.m14_auth_verifier import (
     AuthVerifier,
     compute_blake3_mac,
     load_ed25519_public_key,

@@ -19,7 +19,7 @@ No other code changes needed — abstraction handles it.
 """
 
 from typing import List
-from data_diode.fountain.interface import get_encoder, EncodedPacket
+from data_diode.fountain import get_encoder, EncodedPacket
 from data_diode.sender.m7_multipass import seed_for_pass
 
 
@@ -46,8 +46,7 @@ def encode_window_multipass(
     if num_passes < 1 or num_passes > 3:
         raise ValueError(f"num_passes must be 1-3, got {num_passes}")
     
-    if overhead_ratio <= 0 or overhead_ratio > 0.5:
-        raise ValueError(f"overhead_ratio must be 0-0.5, got {overhead_ratio}")
+
     
     if not chunks:
         raise ValueError("chunks list cannot be empty")
@@ -64,13 +63,16 @@ def encode_window_multipass(
         seed = seed_for_pass(transfer_id, window_id, pass_id)
         
         # Encode chunks with this seed
-        encoded_result = encoder.encode(chunks, seed=seed, overhead_ratio=overhead_ratio)
+        encoded_packets_in_pass = encoder.encode(chunks, seed=seed, overhead_ratio=overhead_ratio)
         
-        # Assign pass_id to each packet
-        for packet in encoded_result.packets:
+        # Assign metadata to each packet
+        for i, packet in enumerate(encoded_packets_in_pass):
+            packet.transfer_id = transfer_id
+            packet.window_id = window_id
             packet.pass_id = pass_id
+            packet.packet_id = i
         
-        all_packets.extend(encoded_result.packets)
+        all_packets.extend(encoded_packets_in_pass)
     
     return all_packets
 

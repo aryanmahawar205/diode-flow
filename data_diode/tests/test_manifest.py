@@ -18,10 +18,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from common.models import TransferManifest, WindowManifest
-from common.config import get_profile
-from sender.m0_manifest import generate_manifest, validate_manifest
-from sender.m10_serializer import (
+from data_diode.common.models import TransferManifest, WindowManifest
+from data_diode.common.config import get_profile
+from data_diode.sender.m0_manifest import generate_manifest, validate_manifest
+from data_diode.sender.m10_serializer import (
     serialize_manifest,
     deserialize_manifest,
     serialize_window_manifest,

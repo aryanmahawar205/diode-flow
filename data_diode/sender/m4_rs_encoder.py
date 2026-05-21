@@ -105,6 +105,11 @@ def encode_with_rs(chunks: List[bytes], rs_config: RSConfig) -> List[bytes]:
             f"(max {rs_config.k} data chunks per block)"
         )
     
+    # Pad to rs_config.k if needed
+    if K < rs_config.k:
+        fill_chunk = b"\x00" * chunk_size
+        chunks = chunks + [fill_chunk for _ in range(rs_config.k - K)]
+
     # Phase 2 simplified: duplicate last chunk for parity
     # Phase 3 will use real RS encoding
     parity_chunks = [chunks[-1] for _ in range(rs_config.num_parity)]

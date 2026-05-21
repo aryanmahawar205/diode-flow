@@ -10,7 +10,7 @@ Available codecs are auto-registered when this module is imported.
 from __future__ import annotations
 
 # Import interface first
-from fountain.interface import (
+from data_diode.fountain.interface import (
     IFountainEncoder,
     IFountainDecoder,
     EncodedPacket,
@@ -24,14 +24,18 @@ from fountain.interface import (
 )
 
 # Register concrete implementations
-from fountain.lt_encoder import LTEncoder
-from fountain.lt_decoder import LTDecoder
-from fountain.raptorq_stub import RaptorQEncoder, RaptorQDecoder
+from data_diode.fountain.lt_encoder import LTEncoder
+from data_diode.fountain.lt_decoder import LTDecoder
+from data_diode.fountain.raptorq_stub import RaptorQEncoder, RaptorQDecoder
 
-register_encoder("lt", LTEncoder)
-register_decoder("lt", LTDecoder)
-register_encoder("raptorq", RaptorQEncoder)
-register_decoder("raptorq", RaptorQDecoder)
+if "lt" not in list_encoders():
+    register_encoder("lt", LTEncoder)
+if "lt" not in list_decoders():
+    register_decoder("lt", LTDecoder)
+if "raptorq" not in list_encoders():
+    register_encoder("raptorq", RaptorQEncoder)
+if "raptorq" not in list_decoders():
+    register_decoder("raptorq", RaptorQDecoder)
 
 __all__ = [
     "IFountainEncoder",

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from sender.m3_merkle import (
+from data_diode.sender.m3_merkle import (
     build_merkle_tree,
     get_merkle_root,
     get_merkle_proof,

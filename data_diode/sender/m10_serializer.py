@@ -25,16 +25,84 @@ import logging
 import struct
 from io import BytesIO
 
-from common.models import (
+from data_diode.common.models import (
     TransferManifest,
     WindowManifest,
     EncodedPacketMetadata,
 )
+from data_diode.common.proto.generated import packet_pb2, manifest_pb2
 
 logger = logging.getLogger(__name__)
 
 MANIFEST_VERSION = 1
 PACKET_VERSION = 1
+
+
+def serialize_packet(packet_obj: any, shared_secret: bytes) -> bytes:
+    """
+    Serialize an encoded packet using Protobuf.
+
+    Parameters:
+        packet_obj: Object with packet metadata and payload.
+                    Expected to have: transfer_id, window_id, pass_id, packet_id,
+                    degree, seed, data (payload).
+        shared_secret: 32-byte secret for BLAKE3-MAC.
+
+    Returns:
+        Bytes containing serialized Protobuf message.
+    """
+    from data_diode.sender.m9_metadata import compute_crc32c, compute_blake3_mac
+
+    proto = packet_pb2.EncodedPacket()
+    proto.transfer_id = packet_obj.transfer_id
+    proto.window_id = packet_obj.window_id
+    proto.pass_id = packet_obj.pass_id
+    proto.packet_id = getattr(packet_obj, "packet_id", 0)
+    proto.fountain_degree = packet_obj.degree
+    proto.fountain_seed = packet_obj.seed
+    proto.payload = packet_obj.data
+
+    # Compute CRC32C over payload
+    proto.crc32c = compute_crc32c(proto.payload)
+
+    # Compute BLAKE3-MAC over entire proto (so far)
+    # To be stable, we serialize once without MAC, then compute MAC, then set it.
+    proto_no_mac = proto.SerializeToString()
+    proto.blake3_mac = compute_blake3_mac(proto_no_mac, shared_secret)
+
+    return proto.SerializeToString()
+
+
+def deserialize_packet(data: bytes, shared_secret: Optional[bytes] = None) -> any:
+    """
+    Deserialize an encoded packet using Protobuf.
+
+    Parameters:
+        data: Serialized packet bytes.
+        shared_secret: If provided, verify BLAKE3-MAC.
+
+    Returns:
+        Namespace or object with packet fields.
+    """
+    from data_diode.sender.m9_metadata import compute_blake3_mac
+    import hmac
+
+    proto = packet_pb2.EncodedPacket()
+    proto.ParseFromString(data)
+
+    if shared_secret:
+        # Verify MAC
+        mac_to_verify = proto.blake3_mac
+        proto.ClearField("blake3_mac")
+        proto_no_mac = proto.SerializeToString()
+        expected_mac = compute_blake3_mac(proto_no_mac, shared_secret)
+        
+        if not hmac.compare_digest(mac_to_verify, expected_mac):
+            raise ValueError("BLAKE3-MAC verification failed")
+        
+        proto.blake3_mac = mac_to_verify
+
+    return proto
 
 
 def serialize_manifest(manifest: TransferManifest) -> bytes:

@@ -9,9 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from common.models import TransferManifest
-from receiver.m22_quarantine import QuarantineManager
-from receiver.m23_storage import StorageWriter
+from data_diode.common.models import TransferManifest
+from data_diode.receiver.m22_quarantine import QuarantineManager
+from data_diode.receiver.m23_storage import StorageWriter
 
 
 def make_manifest() -> TransferManifest:

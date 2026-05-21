@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
 
-from common.config import QUARANTINE_DIR, STORAGE_DIR
-from common.models import TransferManifest
+from data_diode.common.config import QUARANTINE_DIR, STORAGE_DIR
+from data_diode.common.models import TransferManifest
 
 logger = logging.getLogger(__name__)
 

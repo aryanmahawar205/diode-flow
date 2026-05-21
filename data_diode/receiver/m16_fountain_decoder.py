@@ -18,8 +18,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from fountain.interface import get_decoder, DecodeResult
-from receiver.m15_pooler import PooledPacket
+from data_diode.fountain import get_decoder, DecodeResult, EncodedPacket
+from data_diode.receiver.m15_pooler import PooledPacket
 
 logger = logging.getLogger(__name__)
 
@@ -72,10 +72,13 @@ class FountainDecoderWrapper:
             return DecodeResult(chunks=[], missing_ids=list(range(K)), success=False)
 
         # Convert pooled packets to decoder format
-        # Decoder expects list of (degree, seed, payload) tuples
         packets_for_decoder = []
         for p in pooled_packets:
-            packets_for_decoder.append((p.degree, p.fountain_seed, p.payload))
+            packets_for_decoder.append(EncodedPacket(
+                degree=p.degree,
+                seed=p.fountain_seed,
+                data=p.payload
+            ))
 
         # Call fountain decoder
         try:

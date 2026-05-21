@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from fountain.interface import IFountainDecoder, EncodedPacket, DecodeResult
+from data_diode.fountain.interface import IFountainDecoder, EncodedPacket, DecodeResult
 
 logger = logging.getLogger(__name__)
 
@@ -142,30 +142,22 @@ class LTDecoder(IFountainDecoder):
         K: int,
     ) -> None:
         """
-        Rebuild the bipartite graph from encoded packets by resampling degrees.
-
-        This is necessary because we don't transmit the full Tanner graph — only
-        the seed and degree. We reconstruct which chunks each packet depends on
-        by re-running the PRNG with the same seed.
-
-        Parameters:
-            var_nodes: Variable nodes (source chunks).
-            check_nodes: Check nodes (encoded packets).
-            pool: Original encoded packets.
-            K: Number of source symbols.
+        Rebuild the bipartite graph from encoded packets by resampling chunk indices.
         """
         import random
 
         for packet_id, packet in enumerate(pool):
             # Re-seed PRNG with packet seed to regenerate the same chunk indices
-            random.seed(packet.seed)
+            rng = random.Random(packet.seed)
 
-            # Resample degree (must match encoder's Robust Soliton)
-            from fountain.lt_encoder import _robust_soliton_degree
-            degree = _robust_soliton_degree(K)
+            # Skip the first value which was used for degree sampling in the encoder
+            _ = rng.random()
+            
+            # Use the degree from the packet directly
+            degree = packet.degree
 
             # Select same chunks as encoder
-            selected_indices = random.sample(range(K), min(degree, K))
+            selected_indices = rng.sample(range(K), min(degree, K))
 
             # Update graph edges
             check_nodes[packet_id].connected_chunks = selected_indices

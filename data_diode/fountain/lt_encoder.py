@@ -26,25 +26,22 @@ import logging
 import random
 from dataclasses import dataclass
 
-from fountain.interface import IFountainEncoder, EncodedPacket
+from data_diode.fountain.interface import IFountainEncoder, EncodedPacket
 
 logger = logging.getLogger(__name__)
 
 
-def _robust_soliton_degree(K: int, delta: float = 0.1) -> int:
+def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> int:
     """
     Generate a degree sample from Robust Soliton Distribution.
 
     Parameters:
         K: Number of source symbols.
+        rng: Random number generator instance.
         delta: Failure probability target (default 0.1).
 
     Returns:
         Sampled degree d (1 <= d <= K).
-
-    The Robust Soliton Distribution combines:
-    - Ideal Soliton (minimizes expected overhead)
-    - Robust Soliton (adds protection against degree-1 symbols being lost)
     """
     # Precomputed parameters for Robust Soliton
     M = max(K, 2)  # chunk count
@@ -52,7 +49,6 @@ def _robust_soliton_degree(K: int, delta: float = 0.1) -> int:
     S = c * M * (M ** 0.5)  # median of ideal Soliton before robustness spike
 
     # Compute robust Soliton PDF at each degree
-    # rho(d) = ideal Soliton + robustness spike
     rho = [0.0] * (K + 1)  # rho[0] unused, rho[1..K]
 
     # Ideal Soliton rho component
@@ -75,7 +71,7 @@ def _robust_soliton_degree(K: int, delta: float = 0.1) -> int:
     rho = [r / total for r in rho]
 
     # Sample via cumulative distribution
-    r = random.random()
+    r = rng.random()
     cumsum = 0.0
     for d in range(1, K + 1):
         cumsum += rho[d]
@@ -96,17 +92,6 @@ class LTEncoder(IFountainEncoder):
     ) -> list[EncodedPacket]:
         """
         Encode source chunks into LT-encoded packets.
-
-        Parameters:
-            chunks: list[bytes] of K equal-sized source chunks.
-            seed: PRNG seed for reproducible packet generation.
-            overhead_ratio: Fraction overhead (e.g., 0.5 → 1.5*K encoded packets).
-
-        Returns:
-            list[EncodedPacket] with degree, seed, and data populated.
-
-        Raises:
-            ValueError: if chunks empty, seed < 0, or overhead_ratio < 0.
         """
         if not chunks:
             raise ValueError("chunks list cannot be empty")
@@ -126,19 +111,19 @@ class LTEncoder(IFountainEncoder):
                 )
 
         # Generate encoded packets
-        num_packets = int(K * (1.0 + overhead_ratio)) + 1
+        num_packets = int(K * (1.1 + overhead_ratio)) + 2
         encoded = []
 
         for packet_index in range(num_packets):
             # Seed PRNG for reproducibility
             packet_seed = seed + packet_index
-            random.seed(packet_seed)
+            rng = random.Random(packet_seed)
 
             # Sample degree from Robust Soliton
-            degree = _robust_soliton_degree(K)
+            degree = _robust_soliton_degree(K, rng)
 
             # Randomly select which chunks to XOR
-            selected_indices = random.sample(range(K), min(degree, K))
+            selected_indices = rng.sample(range(K), min(degree, K))
 
             # XOR selected chunks
             encoded_data = bytearray(chunk_size)
@@ -154,8 +139,4 @@ class LTEncoder(IFountainEncoder):
                 )
             )
 
-        logger.debug(
-            f"LT encoded K={K} chunks into {len(encoded)} packets "
-            f"(overhead={overhead_ratio})"
-        )
         return encoded
