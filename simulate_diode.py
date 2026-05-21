@@ -35,8 +35,9 @@ def main():
     parser.add_argument("file", help="File to transfer")
     parser.add_argument("--criticality", choices=["standard", "critical", "classified"], default="standard")
     parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT)
-    parser.add_argument("--storage", default="/tmp/data_diode_storage")
+    parser.add_argument("--storage", default="demo_output/storage")
     parser.add_argument("--secret", default="S" * 32)
+    parser.add_argument("--loss-rate", type=float, default=0.0, help="Packet loss rate (0.0 to 1.0)")
     
     args = parser.parse_args()
     
@@ -76,7 +77,8 @@ def main():
             "file_path": args.file,
             "target_addr": (LOOPBACK_ADDRESS, args.port),
             "criticality": args.criticality,
-            "shared_secret": shared_secret
+            "shared_secret": shared_secret,
+            "loss_rate": args.loss_rate
         }
     )
     
@@ -91,7 +93,8 @@ def main():
     logger.info("Sender process finished.")
     
     # Give receiver some time to finish decoding last windows
-    time.sleep(5)
+    # For large files, this might take a while
+    time.sleep(40)
     
     quit_event.set()
     receiver_proc.join(timeout=5)

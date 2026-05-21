@@ -28,6 +28,8 @@ from data_diode.sender.m11_transmitter import Transmitter, TransmitterConfig
 logger = logging.getLogger(__name__)
 
 
+import random
+
 def run_sender(
     file_path: str,
     target_addr: tuple[str, int],
@@ -35,6 +37,7 @@ def run_sender(
     sender_node_id: str = "sender-01",
     shared_secret: bytes = b"S" * 32,
     private_key: Optional[bytes] = None,
+    loss_rate: float = 0.0,
 ) -> bool:
     """
     Run the complete sender pipeline for a file.
@@ -46,6 +49,7 @@ def run_sender(
         sender_node_id: Identifier for this sender.
         shared_secret: 32-byte secret for BLAKE3-MAC.
         private_key: Ed25519 private key (bytes or object) for manifest signing (optional).
+        loss_rate: Probability (0.0 - 1.0) of dropping each packet to simulate network loss.
 
     Returns:
         True if transmission completed successfully.
@@ -84,11 +88,19 @@ def run_sender(
     )
     transmitter = Transmitter(tx_config)
 
+    # Metrics
+    total_packets_attempted = 0
+    total_packets_dropped = 0
+
     # 4. Phase 0: Send Manifest
     logger.info(f"Sending manifest ({profile.header_redundancy} copies)")
     serialized_manifest = serialize_manifest(manifest)
     for _ in range(profile.header_redundancy):
-        transmitter.send_packet(target_addr, serialized_manifest)
+        total_packets_attempted += 1
+        if random.random() >= loss_rate:
+            transmitter.send_packet(target_addr, serialized_manifest)
+        else:
+            total_packets_dropped += 1
         time.sleep(0.01)
 
     # 5. Phase 1: Send Data Windows
@@ -129,6 +141,12 @@ def run_sender(
         logger.info(f"Sending {len(interleaved_packets)} packets for window {window_id}")
         
         for pkt in interleaved_packets:
+            total_packets_attempted += 1
+            # Simulate loss
+            if random.random() < loss_rate:
+                total_packets_dropped += 1
+                continue
+
             # Attach security envelope and serialize
             try:
                 packet_bytes = serialize_packet(pkt, shared_secret)
@@ -142,6 +160,10 @@ def run_sender(
             except Exception as e:
                 logger.error(f"Error sending packet: {e}")
                 continue
+
+    if total_packets_attempted > 0:
+        actual_loss_percent = (total_packets_dropped / total_packets_attempted) * 100
+        logger.info(f"Transmission METRICS: Total={total_packets_attempted}, Dropped={total_packets_dropped}, Loss={actual_loss_percent:.2f}%")
 
     logger.info("Transfer complete")
     transmitter.close()

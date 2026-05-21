@@ -34,19 +34,10 @@ def verify_chunk_merkle(
     chunk_data: bytes,
     chunk_id: int,
     merkle_root: str,
-    merkle_tree_dict: dict,
+    merkle_tree_dict: Optional[dict] = None,
 ) -> bool:
     """
-    Verify a chunk's integrity using Merkle tree.
-    
-    Args:
-        chunk_data: Chunk bytes to verify
-        chunk_id: Global chunk ID
-        merkle_root: Expected Merkle root (hex string)
-        merkle_tree_dict: Merkle tree dict with 'root', 'leaves' keys
-    
-    Returns:
-        True if chunk is valid (hash matches tree), False otherwise
+    Verify a chunk's integrity using Merkle tree leaf hashes if available.
     """
     if not chunk_data:
         return False
@@ -54,17 +45,18 @@ def verify_chunk_merkle(
     # Compute chunk hash
     chunk_hash = hashlib.sha256(chunk_data).hexdigest()
     
-    # For now, simple verification: check if chunk_hash is in tree leaves
-    # Full proof verification would rebuild path to root
-    if "leaves" in merkle_tree_dict:
+    # If we have the full tree leaves (from a trusted source like manifest), check it
+    if merkle_tree_dict and "leaves" in merkle_tree_dict:
         leaves = merkle_tree_dict["leaves"]
-        # Check if chunk_hash is among leaves (simplified check)
-        # In full impl, would trace proof path to root
         if chunk_id < len(leaves):
-            expected_hash = leaves[chunk_id]
-            return chunk_hash == expected_hash
-    
-    # If no tree info, assume valid (Phase 2 placeholder)
+            return chunk_hash == leaves[chunk_id]
+            
+    # If we only have the root (Phase 2), we can't verify single chunks without the proof path
+    # But for the demo, we should at least check if the chunk is not all zeros if it was supposed to be data
+    if all(b == 0 for b in chunk_data) and len(chunk_data) > 0:
+        # High probability this is a failed decode filled with zeros
+        return False
+
     return True
 
 

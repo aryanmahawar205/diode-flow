@@ -203,12 +203,13 @@ class WindowDecodeSession:
     """
     transfer_id: str              # parent transfer
     window_id: int                # which window
-    window_manifest: WindowManifest
+    window_manifest: Optional[WindowManifest] = None
     chunks: dict[int, Optional[bytes]] = field(default_factory=dict)  # chunk_id -> bytes | None
     decoded: set[int] = field(default_factory=set)  # chunk_ids successfully decoded
     verified: set[int] = field(default_factory=set)  # chunk_ids verified by Merkle
     is_complete: bool = False
     error: Optional[str] = None
+    data: Optional[bytes] = None # Fully reassembled window data
 
 
 @dataclass

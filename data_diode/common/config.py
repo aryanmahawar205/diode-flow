@@ -95,30 +95,30 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
     # Small files (< 10 MB)
     ("small", "standard"):    TransferProfile(
         num_passes=1,
-        overhead_ratio=0.50,
+        overhead_ratio=0.80,
         rs_n=255,
-        rs_k=250,
+        rs_k=220,
         interleave_depth=2,
-        header_redundancy=3,
-        window_size_bytes=64 * 1024 * 1024,
+        header_redundancy=5,
+        window_size_bytes=256 * 1024,
     ),
     ("small", "critical"):    TransferProfile(
         num_passes=1,
-        overhead_ratio=0.60,
+        overhead_ratio=1.00,
         rs_n=255,
-        rs_k=250,
+        rs_k=200,
         interleave_depth=3,
-        header_redundancy=5,
-        window_size_bytes=64 * 1024 * 1024,
+        header_redundancy=7,
+        window_size_bytes=256 * 1024,
     ),
     ("small", "classified"):  TransferProfile(
-        num_passes=1,
-        overhead_ratio=0.80,
+        num_passes=2,
+        overhead_ratio=1.20,
         rs_n=255,
-        rs_k=250,
+        rs_k=180,
         interleave_depth=4,
-        header_redundancy=7,
-        window_size_bytes=64 * 1024 * 1024,
+        header_redundancy=10,
+        window_size_bytes=256 * 1024,
     ),
 
     # Medium files (10 MB - 1 GB)
@@ -218,10 +218,10 @@ TRANSFER_CLEANUP_TIMEOUT = 3600.0
 # ==============================================================================
 
 # Directory for incomplete/quarantined transfers
-QUARANTINE_DIR = "/tmp/data_diode_quarantine"
+QUARANTINE_DIR = "demo_output/quarantine"
 
 # Directory for verified transfers
-STORAGE_DIR = "/tmp/data_diode_storage"
+STORAGE_DIR = "demo_output/storage"
 
 # Permissions for storage directory (octal)
 STORAGE_DIR_PERMISSIONS = 0o700

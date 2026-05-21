@@ -22,17 +22,19 @@ class Colors:
 def log_step(step, description):
     print(f"\n{Colors.BOLD}{Colors.OKCYAN}[STEP {step}]{Colors.ENDC} {description}")
 
+import random
+
 def run_demo():
     test_files = [
         ("test_files/sample.txt", "standard"),
         ("test_files/photo.jpg", "critical"),
-        ("test_files/video_clip.mp4", "classified")
+        ("test_files/video.mp4", "classified")
     ]
     
-    storage_dir = "/tmp/data_diode_demo"
-    if os.path.exists(storage_dir):
+    storage_dir = "demo_output/storage"
+    if os.path.exists("demo_output"):
         import shutil
-        shutil.rmtree(storage_dir)
+        shutil.rmtree("demo_output")
     os.makedirs(storage_dir, exist_ok=True)
 
     print(f"{Colors.HEADER}{Colors.BOLD}=== DATA DIODE E2E DEMO ==={Colors.ENDC}")
@@ -44,12 +46,22 @@ def run_demo():
             continue
 
         file_size = os.path.getsize(file_path) / 1024
+        
+        # Determine a random loss rate for this file to show robustness
+        # 2% to 15% loss
+        loss_rate = random.uniform(0.02, 0.15)
+        
         log_step(i, f"Transferring {Colors.BOLD}{os.path.basename(file_path)}{Colors.ENDC} ({file_size:.1f} KB)")
         print(f"Security Level: {Colors.BOLD}{criticality.upper()}{Colors.ENDC}")
+        print(f"Simulated Loss Rate: {Colors.WARNING}{loss_rate*100:.1f}%{Colors.ENDC}")
         
         # Run the simulation script
-        # Using subprocess to capture and filter output for a cleaner demo feel
-        cmd = ["python3", "simulate_diode.py", file_path, "--criticality", criticality, "--storage", storage_dir]
+        cmd = [
+            "python3", "simulate_diode.py", file_path, 
+            "--criticality", criticality, 
+            "--storage", storage_dir,
+            "--loss-rate", str(loss_rate)
+        ]
         env = os.environ.copy()
         env["PYTHONPATH"] = "."
         
@@ -65,12 +77,13 @@ def run_demo():
             "RS encoding",           # Step 4
             "Fountain encoding",     # Step 6
             "Triggering decode",     # Step 16
-            "RS decode",             # Step 17
+            "RS Decoder — Attempting to recover", # Step 17
             "Window complete",       # Step 19
             "reassembling file",     # Step 20
             "verification passed",   # Step 21
             "Stored file",           # Step 23
-            "SUCCESS!"               # Final
+            "SUCCESS!",              # Final
+            "METRICS:"               # Metrics
         ]
         for line in process.stdout:
             line = line.strip()
@@ -79,6 +92,8 @@ def run_demo():
             if "SUCCESS!" in line:
                 print(f"  {Colors.OKGREEN}✔ {line.split('] ')[-1]}{Colors.ENDC}")
                 success = True
+            elif "METRICS:" in line:
+                print(f"  {Colors.OKBLUE}📊 {line.split('] ')[-1]}{Colors.ENDC}")
             elif "ERROR" in line or "FAIL" in line or "Traceback" in line or "Exception" in line:
                 print(f"  {Colors.FAIL}{line}{Colors.ENDC}")
             elif any(x.lower() in line.lower() for x in interesting_logs):
@@ -86,11 +101,14 @@ def run_demo():
                 msg = line.split('] ')[-1]
                 if "Processing window" in msg or "Starting" in msg:
                     print(f"  {Colors.OKBLUE}➡ {msg}{Colors.ENDC}")
+                elif "RS Decoder — Attempting to recover" in msg:
+                    print(f"    {Colors.WARNING}🔧 {msg}{Colors.ENDC}")
                 else:
                     print(f"    {Colors.OKCYAN}• {msg}{Colors.ENDC}")
             else:
-                # Show all output for debugging
-                print(f"    {line}")
+                # Show all output for debugging (optional, keeping it quiet for now)
+                # print(f"    {line}")
+                pass
 
         process.wait()
         duration = time.time() - start_time

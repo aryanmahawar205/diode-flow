@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import random
+import math
 from dataclasses import dataclass
 
 from data_diode.fountain.interface import IFountainEncoder, EncodedPacket
@@ -34,50 +35,43 @@ logger = logging.getLogger(__name__)
 def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> int:
     """
     Generate a degree sample from Robust Soliton Distribution.
-
-    Parameters:
-        K: Number of source symbols.
-        rng: Random number generator instance.
-        delta: Failure probability target (default 0.1).
-
-    Returns:
-        Sampled degree d (1 <= d <= K).
     """
-    # Precomputed parameters for Robust Soliton
-    M = max(K, 2)  # chunk count
-    c = 0.1  # constant for robustness
-    S = c * M * (M ** 0.5)  # median of ideal Soliton before robustness spike
-
-    # Compute robust Soliton PDF at each degree
-    rho = [0.0] * (K + 1)  # rho[0] unused, rho[1..K]
-
-    # Ideal Soliton rho component
-    for d in range(1, K + 1):
-        if d == 1:
-            rho[d] = 1.0 / M
-        else:
-            rho[d] = 1.0 / (d * (d - 1))
-
-    # Robustness spike (protect degree-1 symbols)
-    spike_limit = min(int(M / S) + 1, K)
-    for d in range(1, spike_limit):
-        if d < len(rho):
-            rho[d] += (c * (M ** 0.5)) / (M * d * S)
-
-    # Normalize to probability distribution
-    total = sum(rho[1:])
-    if total <= 0:
+    if K == 1:
         return 1
-    rho = [r / total for r in rho]
-
-    # Sample via cumulative distribution
+        
+    # Ideal Soliton distribution rho(d)
+    rho = [0.0] * (K + 1)
+    rho[1] = 1.0 / K
+    for d in range(2, K + 1):
+        rho[d] = 1.0 / (d * (d - 1))
+        
+    # Robust component tau(d)
+    c = 0.2 # constant
+    S = c * (K ** 0.5) * (math.log(K / delta) ** 2) # McKay formula approximation
+    # For small K, just ensure S is at least 1
+    S = max(S, 1.0)
+    
+    tau = [0.0] * (K + 1)
+    K_S = int(round(K / S))
+    K_S = max(1, min(K_S, K))
+    
+    for d in range(1, K_S):
+        tau[d] = S / (K * d)
+    tau[K_S] = S * math.log(S / delta) / K
+    
+    # Combined distribution mu(d)
+    mu = [rho[d] + tau[d] for d in range(1, K + 1)]
+    total = sum(mu)
+    mu = [m / total for m in mu]
+    
+    # Sample
     r = rng.random()
     cumsum = 0.0
     for d in range(1, K + 1):
-        cumsum += rho[d]
+        cumsum += mu[d-1]
         if r <= cumsum:
             return d
-
+            
     return K
 
 

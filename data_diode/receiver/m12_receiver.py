@@ -91,22 +91,16 @@ class Receiver:
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        timeout_sec = self.config.socket_timeout_ms / 1000.0
-        self.socket.settimeout(timeout_sec)
+        # Truly non-blocking
+        self.socket.setblocking(False)
 
         self.socket.bind((self.bind_addr, self.bind_port))
         self.actual_port = self.socket.getsockname()[1]
-        logger.info(f"Receiver bound to {self.bind_addr}:{self.actual_port}")
+        logger.info(f"Receiver bound to {self.bind_addr}:{self.actual_port} (NON-BLOCKING)")
 
     def receive_nonblocking(self) -> Optional[PacketEntry]:
         """
         Receive one packet without blocking.
-
-        Returns:
-            PacketEntry if packet received, None if no packets or timeout.
-
-        Raises:
-            OSError: if socket error occurs.
         """
         if self.socket is None:
             self._bind_socket()
@@ -122,13 +116,14 @@ class Receiver:
                 source_addr=source_addr,
                 timestamp=time.time()
             )
-            self.buffer[self.write_index] = entry
+            # In simplified mode, we don't even need the internal ring buffer 
+            # if we process immediately, but let's keep the index update.
             self.write_index = (self.write_index + 1) % self.config.buffer_slots
             self.packet_count += 1
 
             return entry
 
-        except socket.timeout:
+        except (BlockingIOError, socket.timeout):
             # No packet available
             return None
         except OSError as e:
