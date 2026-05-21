@@ -79,7 +79,7 @@ class FountainDecoderWrapper:
 
         # Call fountain decoder
         try:
-            result = self.decoder.decode(K, packets_for_decoder)
+            result = self.decoder.decode(packets_for_decoder, K)
             return result
         except Exception as e:
             logger.error(f"Fountain decoder error: {e}")
@@ -131,14 +131,17 @@ class FountainDecoderWrapper:
             # Early exit if all chunks recovered
             if total_recovered == K:
                 logger.info(f"Complete recovery from pass {pass_id}")
-                return DecodeResult(chunks=combined_chunks, stats=result.stats)
+                missing_ids = [i for i, chunk in enumerate(combined_chunks) if chunk is None]
+                return DecodeResult(chunks=combined_chunks, missing_ids=missing_ids, success=True)
 
         if total_recovered > 0:
             logger.info(f"Partial recovery: {total_recovered}/{K} chunks")
 
+        missing_ids = [i for i, chunk in enumerate(combined_chunks) if chunk is None]
         return DecodeResult(
             chunks=combined_chunks,
-            stats={"partial_recovery": total_recovered}
+            missing_ids=missing_ids,
+            success=(total_recovered == K)
         )
 
     def get_recovery_stats(self, result: DecodeResult) -> Dict:

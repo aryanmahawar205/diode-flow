@@ -118,8 +118,8 @@ class LossSimulator:
         Returns:
             Corrupted packet bytes
         """
-        if corruption_rate < 0 or corruption_rate > 1e-4:
-            raise ValueError(f"corruption_rate should be << 1, got {corruption_rate}")
+        if corruption_rate < 0 or corruption_rate > 1.0:
+            raise ValueError(f"corruption_rate must be between 0 and 1, got {corruption_rate}")
         
         if seed is not None:
             random.seed(seed)

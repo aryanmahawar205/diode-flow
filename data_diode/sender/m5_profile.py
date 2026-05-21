@@ -41,6 +41,8 @@ Window sizing (independent of criticality):
 from dataclasses import dataclass
 from typing import Tuple
 
+DEFAULT_CHUNK_SIZE = 1200
+
 
 @dataclass(frozen=True)
 class Profile:
@@ -64,6 +66,11 @@ class Profile:
             raise ValueError(f"header_redundancy must be 3–5, got {self.header_redundancy}")
         if not (32 * 1024 * 1024 <= self.window_size_bytes <= 128 * 1024 * 1024):
             raise ValueError(f"window_size_bytes must be 32–128 MB, got {self.window_size_bytes}")
+
+    @property
+    def chunk_size_bytes(self) -> int:
+        """Alias for the default chunk size used by the transfer profile."""
+        return DEFAULT_CHUNK_SIZE
 
 
 # Global profile table — the single source of truth for robustness strategy

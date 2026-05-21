@@ -67,32 +67,44 @@ def generate_seeds(transfer_id: str, window_id: int, num_passes: int) -> List[in
     return [seed_for_pass(transfer_id, window_id, pass_id) for pass_id in range(num_passes)]
 
 
-def verify_seed_uncorrelation(transfer_id: str, window_id: int, num_passes: int) -> bool:
+def verify_seed_uncorrelation(
+    transfer_id_or_seed0,
+    window_id_or_seed1,
+    num_passes: int | None = None,
+    threshold: int = 20,
+) -> bool:
     """
-    Verify that seeds from different passes are uncorrelated (bitwise Hamming distance).
-    
-    For debugging: returns True if passes have good bit separation (sanity check).
-    This is not cryptographic validation — just ensures seeds differ significantly.
-    
-    Args:
-        transfer_id: Transfer UUID
-        window_id: Window index
-        num_passes: Number of passes
-    
-    Returns:
-        True if seeds are sufficiently uncorrelated (>= 20 bits different)
+    Verify that seeds are uncorrelated.
+
+    Supports two usage patterns:
+    1. verify_seed_uncorrelation(transfer_id, window_id, num_passes)
+       - Generates seeds for a transfer and verifies pairwise Hamming distance.
+    2. verify_seed_uncorrelation(seed0, seed1, threshold=20)
+       - Verifies two already-generated seeds are sufficiently different.
     """
-    seeds = generate_seeds(transfer_id, window_id, num_passes)
-    
+    # Pattern 1: transfer_id / window_id / num_passes
+    if isinstance(transfer_id_or_seed0, str) and isinstance(window_id_or_seed1, int):
+        if num_passes is None:
+            raise ValueError("num_passes must be provided for transfer_id mode")
+        seeds = generate_seeds(transfer_id_or_seed0, window_id_or_seed1, num_passes)
+    # Pattern 2: seed0 / seed1 / threshold
+    elif isinstance(transfer_id_or_seed0, int) and isinstance(window_id_or_seed1, int):
+        seeds = [transfer_id_or_seed0, window_id_or_seed1]
+        if num_passes is not None:
+            threshold = num_passes
+    else:
+        raise TypeError(
+            "verify_seed_uncorrelation() expects either "
+            "(transfer_id: str, window_id: int, num_passes: int) "
+            "or (seed0: int, seed1: int, threshold: int)"
+        )
+
     # Check each pair
     for i in range(len(seeds)):
         for j in range(i + 1, len(seeds)):
-            # XOR to find different bits
             diff = seeds[i] ^ seeds[j]
-            # Count differing bits (Hamming distance)
             hamming = bin(diff).count("1")
-            # Should have at least 20 bits different (typically much higher, conservative threshold)
-            if hamming < 20:
+            if hamming < threshold:
                 return False
-    
+
     return True
