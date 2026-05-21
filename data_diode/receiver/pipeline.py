@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import time
 import os
+import multiprocessing
+import queue
 from typing import Dict, Optional, Set
 from pathlib import Path
 
@@ -30,6 +32,34 @@ from data_diode.receiver.m23_storage import StorageWriter
 logger = logging.getLogger(__name__)
 
 
+def _listener_process(bind_addr: str, bind_port: int, config: ReceiverConfig, packet_queue: multiprocessing.Queue, quit_event: multiprocessing.Event):
+    """
+    Dedicated process for high-speed UDP reception.
+    Dumps raw payloads into the queue as fast as possible.
+    """
+    receiver = Receiver(bind_addr, bind_port, config)
+    receiver._bind_socket()
+    
+    logger.info("Listener process started")
+    try:
+        while not quit_event.is_set():
+            # Batch receive to reduce queue overhead
+            batch = receiver.receive_batch(max_packets=100)
+            if not batch:
+                time.sleep(0.001) # Very short sleep
+                continue
+            
+            for entry in batch:
+                try:
+                    packet_queue.put(entry.payload, block=False)
+                except queue.Full:
+                    # This should only happen if the decoder is catastrophically slow
+                    pass
+    finally:
+        receiver.close()
+        logger.info("Listener process exiting")
+
+
 def run_receiver(
     bind_addr: str = "0.0.0.0",
     bind_port: int = 20000,
@@ -39,16 +69,29 @@ def run_receiver(
     quit_event: Optional[any] = None,
 ) -> None:
     """
-    Run the complete receiver pipeline.
+    Run the complete receiver pipeline with multi-process isolation.
     """
-    logger.info(f"Starting receiver on {bind_addr}:{bind_port}")
+    logger.info(f"Starting multi-process receiver on {bind_addr}:{bind_port}")
+    
+    # Internal quit event if none provided
+    if quit_event is None:
+        quit_event = multiprocessing.Event()
+    
+    # Queue for inter-process communication
+    # 100k packets buffer in RAM
+    packet_queue = multiprocessing.Queue(maxsize=100000)
     
     config = ReceiverConfig(buffer_slots=100000)
-    receiver = Receiver(bind_addr, bind_port, config)
-    receiver._bind_socket()
+    
+    # Start the listener process
+    listener = multiprocessing.Process(
+        target=_listener_process,
+        args=(bind_addr, bind_port, config, packet_queue, quit_event),
+        daemon=True
+    )
+    listener.start()
     
     packet_validator = PacketValidator()
-    manifest_validator = ManifestValidator()
     packet_pool = PacketPool()
     storage_writer = StorageWriter(storage_dir=storage_dir)
     
@@ -56,26 +99,24 @@ def run_receiver(
     completed_transfers: Set[str] = set()
 
     try:
-        while quit_event is None or not quit_event.is_set():
-            # 1. Drain all available packets into pools as fast as possible
-            batch = receiver.receive_batch(max_packets=1000)
-            if not batch:
-                time.sleep(0.01)
-                continue
+        while not quit_event.is_set():
+            # 1. Drain the queue into pools
+            dirty_windows = set()
             
-            # Keep track of which windows received new packets in this batch
-            dirty_windows = set() # (transfer_id, window_id)
-
-            for entry in batch:
+            processed_in_batch = 0
+            while processed_in_batch < 2000: # Process in chunks
                 try:
-                    if entry.payload[0] == MANIFEST_VERSION:
-                        manifest = deserialize_manifest(entry.payload)
+                    payload = packet_queue.get_nowait()
+                    processed_in_batch += 1
+                    
+                    if payload[0] == MANIFEST_VERSION:
+                        manifest = deserialize_manifest(payload)
                         if manifest.transfer_id not in completed_transfers and manifest.transfer_id not in active_transfers:
                             logger.info(f"Received manifest: {manifest.file_name}")
                             active_transfers[manifest.transfer_id] = TransferDecodeSession(transfer_id=manifest.transfer_id, manifest=manifest)
                         continue
 
-                    packet_proto = deserialize_packet(entry.payload, shared_secret)
+                    packet_proto = deserialize_packet(payload, shared_secret)
                     transfer_id = packet_proto.transfer_id
                     if transfer_id not in active_transfers: continue
                     
@@ -90,25 +131,21 @@ def run_receiver(
                     packet_pool.add_packet(transfer_id, packet_proto.window_id, pooled)
                     session.received_packets += 1
                     dirty_windows.add((transfer_id, packet_proto.window_id))
+                except queue.Empty:
+                    break
                 except Exception:
                     continue
 
-            # Heartbeat logging every 1000 packets
-            if receiver.packet_count % 1000 == 0:
-                stats = []
-                for tid, sess in active_transfers.items():
-                    for wid in range(sess.manifest.total_windows):
-                        pkts = len(packet_pool.get_packets(tid, wid))
-                        if pkts > 0: stats.append(f"W{wid}:{pkts}")
-                if stats: logger.info(f"Receiver Status: {receiver.packet_count} total pkts. Pools: {', '.join(stats)}")
+            if processed_in_batch == 0:
+                time.sleep(0.01)
+                continue
 
-            # 2. After draining, check dirty windows for decode readiness
+            # 2. Process dirty windows
             for transfer_id, window_id in dirty_windows:
                 session = active_transfers.get(transfer_id)
                 if not session: continue
                 manifest = session.manifest
                 
-                # Setup window session if needed
                 if window_id not in session.windows:
                     session.windows[window_id] = WindowDecodeSession(transfer_id=transfer_id, window_id=window_id)
                 
@@ -117,37 +154,33 @@ def run_receiver(
                 
                 window_packets = packet_pool.get_packets(transfer_id, window_id)
                 
-                # Determine K_fountain
                 if window_id == manifest.total_windows - 1:
                     window_size = manifest.file_size % manifest.window_size_bytes or manifest.window_size_bytes
                 else:
                     window_size = manifest.window_size_bytes
+                
                 W = (window_size + manifest.chunk_size - 1) // manifest.chunk_size
                 num_blocks = (W + manifest.rs_k - 1) // manifest.rs_k
                 K_fountain = num_blocks * manifest.rs_n
                 
                 min_packets = int(K_fountain * 1.05)
                 last_attempt = getattr(window_session, "last_attempt_count", 0)
-                trigger_interval = 50 if K_fountain < 1000 else 200
+                trigger_interval = 100 if K_fountain < 1000 else 200
                 
                 if len(window_packets) >= min_packets and (len(window_packets) >= last_attempt + trigger_interval):
                     window_session.last_attempt_count = len(window_packets)
-                    logger.info(f"Decoding window {window_id} of {transfer_id} ({len(window_packets)} packets, K={K_fountain})")
+                    logger.info(f"Decoding window {window_id} ({len(window_packets)} packets, K={K_fountain})")
                     
                     decoder = FountainDecoderWrapper("lt")
                     decode_result = decoder.decode_window(window_packets, K=K_fountain, chunk_size=manifest.chunk_size)
                     
                     if sum(1 for c in decode_result.chunks if c is not None) > 0:
-                        logger.info(f"RS recovery for window {window_id}")
                         rs_decoder = ReedSolomonDecoder(RSConfig(n=manifest.rs_n, k=manifest.rs_k))
                         try:
                             chunks = rs_decoder.decode(decode_result.chunks)
                             reassembler = WindowReassembler(window_id=window_id, chunk_size=manifest.chunk_size, expected_bytes=window_size)
                             for i in range(W):
-                                block_id = i // manifest.rs_k
-                                chunk_in_block = i % manifest.rs_k
-                                chunk_data = chunks[block_id * manifest.rs_n + chunk_in_block]
-                                
+                                chunk_data = chunks[i]
                                 if verify_chunk_merkle(chunk_data, i + (window_id * (manifest.window_size_bytes // manifest.chunk_size)), manifest.merkle_root):
                                     reassembler.add_chunk(i, chunk_data)
                             
@@ -158,9 +191,7 @@ def run_receiver(
                         except Exception as e:
                             logger.warning(f"RS failed: {e}")
                 
-                # Check for file completion
                 if len(session.windows) == manifest.total_windows and all(w.is_complete for w in session.windows.values()):
-                    logger.info(f"Reassembling {manifest.file_name}")
                     try:
                         final_file_bytes = b"".join(session.windows[i].data for i in range(manifest.total_windows))
                         if FileVerifier.verify_file(final_file_bytes, manifest.file_size, manifest.file_sha256)["valid"]:
@@ -173,7 +204,8 @@ def run_receiver(
                         completed_transfers.add(transfer_id)
                         del active_transfers[transfer_id]
 
-    except KeyboardInterrupt:
-        pass
     finally:
-        receiver.close()
+        quit_event.set()
+        listener.join(timeout=1)
+        if listener.is_alive():
+            listener.terminate()

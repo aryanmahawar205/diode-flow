@@ -174,53 +174,55 @@ class LTDecoder(IFountainDecoder):
     ) -> None:
         """
         Iteratively peel degree-1 variables and propagate values through graph.
-
-        When a variable is resolved:
-        1. All connected check nodes have that variable's value XORed out.
-        2. Those check nodes' degrees decrease.
-        3. If a check node's degree becomes 1, the last connected variable is known.
-
-        Parameters:
-            var_nodes: Variable nodes to decode.
-            check_nodes: Check nodes (encoded packets).
-            chunk_size: Size of each chunk in bytes.
+        Optimized version using integer XOR and sets.
         """
         import collections
+
+        # Optimization: use integers for XOR and sets for connectivity
+        # This is much faster in Python than repeatedly converting bytes
+        check_ints = {pid: int.from_bytes(check.data, "big") for pid, check in check_nodes.items()}
+        check_chunks = {pid: set(check.connected_chunks) for pid, check in check_nodes.items()}
+        
+        # Track which variable nodes have been resolved to their integer value
+        var_ints: dict[int, int] = {}
 
         # Queue of known variables needing propagation
         queue = collections.deque()
 
-        # Find initial degree-1 packets (whose only chunk can be directly solved)
-        for packet_id, check in check_nodes.items():
-            if check.degree == 1:
-                chunk_id = check.connected_chunks[0]
-                if not var_nodes[chunk_id].is_known:
-                    # Single chunk XOR encoded: chunk == packet.data
-                    var_nodes[chunk_id].value = bytes(check.data)
+        # Find initial degree-1 packets
+        for pid, chunks in check_chunks.items():
+            if len(chunks) == 1:
+                chunk_id = next(iter(chunks))
+                if chunk_id not in var_ints:
+                    var_ints[chunk_id] = check_ints[pid]
                     var_nodes[chunk_id].is_known = True
                     queue.append(chunk_id)
 
         # Belief propagation peeling
         while queue:
             chunk_id = queue.popleft()
-            chunk_val = var_nodes[chunk_id].value
+            chunk_val_int = var_ints[chunk_id]
 
             # XOR this chunk out of all connected packets
-            for packet_id in var_nodes[chunk_id].connected_packets:
-                check = check_nodes[packet_id]
+            for pid in var_nodes[chunk_id].connected_packets:
+                if chunk_id not in check_chunks[pid]:
+                    continue
 
-                # XOR chunk_val into packet data
-                for j in range(chunk_size):
-                    check.data[j] ^= chunk_val[j]
+                # XOR chunk_val into packet data (integer space)
+                check_ints[pid] ^= chunk_val_int
 
                 # Remove edge and decrement degree
-                check.connected_chunks.remove(chunk_id)
-                check.degree -= 1
+                check_chunks[pid].remove(chunk_id)
 
                 # If packet now has degree 1, resolve its last chunk
-                if check.degree == 1:
-                    last_chunk_id = check.connected_chunks[0]
-                    if not var_nodes[last_chunk_id].is_known:
-                        var_nodes[last_chunk_id].value = bytes(check.data)
+                if len(check_chunks[pid]) == 1:
+                    last_chunk_id = next(iter(check_chunks[pid]))
+                    if last_chunk_id not in var_ints:
+                        var_ints[last_chunk_id] = check_ints[pid]
                         var_nodes[last_chunk_id].is_known = True
                         queue.append(last_chunk_id)
+
+        # Final conversion back to bytes for known variables
+        for chunk_id, val_int in var_ints.items():
+            var_nodes[chunk_id].value = val_int.to_bytes(chunk_size, "big")
+            var_nodes[chunk_id].is_known = True

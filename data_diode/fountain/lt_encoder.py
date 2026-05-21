@@ -32,12 +32,16 @@ from data_diode.fountain.interface import IFountainEncoder, EncodedPacket
 logger = logging.getLogger(__name__)
 
 
-def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> int:
+# Global cache for Robust Soliton distributions to avoid re-calculation
+_SOLITON_CACHE: dict[int, list[float]] = {}
+
+
+def _get_robust_soliton_distribution(K: int, delta: float = 0.1) -> list[float]:
     """
-    Generate a degree sample from Robust Soliton Distribution.
+    Get the Robust Soliton distribution for a given K, cached.
     """
-    if K == 1:
-        return 1
+    if K in _SOLITON_CACHE:
+        return _SOLITON_CACHE[K]
         
     # Ideal Soliton distribution rho(d)
     rho = [0.0] * (K + 1)
@@ -47,8 +51,7 @@ def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> in
         
     # Robust component tau(d)
     c = 0.2 # constant
-    S = c * (K ** 0.5) * (math.log(K / delta) ** 2) # McKay formula approximation
-    # For small K, just ensure S is at least 1
+    S = c * (K ** 0.5) * (math.log(K / delta) ** 2)
     S = max(S, 1.0)
     
     tau = [0.0] * (K + 1)
@@ -63,6 +66,19 @@ def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> in
     mu = [rho[d] + tau[d] for d in range(1, K + 1)]
     total = sum(mu)
     mu = [m / total for m in mu]
+    
+    _SOLITON_CACHE[K] = mu
+    return mu
+
+
+def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> int:
+    """
+    Generate a degree sample from Robust Soliton Distribution.
+    """
+    if K == 1:
+        return 1
+        
+    mu = _get_robust_soliton_distribution(K, delta)
     
     # Sample
     r = rng.random()
@@ -104,6 +120,9 @@ class LTEncoder(IFountainEncoder):
                     f"Chunk {i} size {len(chunk)} != {chunk_size}"
                 )
 
+        # Pre-convert chunks to integers for faster XORing
+        chunk_ints = [int.from_bytes(c, "big") for c in chunks]
+
         # Generate encoded packets
         num_packets = int(K * (1.1 + overhead_ratio)) + 2
         encoded = []
@@ -119,17 +138,18 @@ class LTEncoder(IFountainEncoder):
             # Randomly select which chunks to XOR
             selected_indices = rng.sample(range(K), min(degree, K))
 
-            # XOR selected chunks
-            encoded_data = bytearray(chunk_size)
+            # XOR selected chunks (optimized)
+            res_int = 0
             for idx in selected_indices:
-                for j in range(chunk_size):
-                    encoded_data[j] ^= chunks[idx][j]
+                res_int ^= chunk_ints[idx]
+
+            encoded_data = res_int.to_bytes(chunk_size, "big")
 
             encoded.append(
                 EncodedPacket(
                     degree=degree,
                     seed=packet_seed,
-                    data=bytes(encoded_data),
+                    data=encoded_data,
                 )
             )
 

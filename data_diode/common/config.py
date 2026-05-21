@@ -129,7 +129,7 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_k=4,
         interleave_depth=4,
         header_redundancy=3,
-        window_size_bytes=100 * 1024,
+        window_size_bytes=1024 * 1024,
     ),
     ("medium", "critical"):   TransferProfile(
         num_passes=3,
@@ -138,7 +138,7 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_k=6,
         interleave_depth=5,
         header_redundancy=5,
-        window_size_bytes=100 * 1024,
+        window_size_bytes=1024 * 1024,
     ),
     ("medium", "classified"): TransferProfile(
         num_passes=3,
@@ -147,7 +147,7 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_k=8,
         interleave_depth=6,
         header_redundancy=7,
-        window_size_bytes=100 * 1024,
+        window_size_bytes=1024 * 1024,
     ),
 
     # Large files (> 1 GB)

@@ -93,8 +93,31 @@ def main():
     logger.info("Sender process finished.")
     
     # Give receiver some time to finish decoding last windows
-    # For large files, this might take a while
-    time.sleep(40)
+    # Dynamically poll the storage directory instead of fixed sleep
+    file_name = os.path.basename(args.file)
+    timeout = 120
+    start_wait = time.time()
+    
+    while time.time() - start_wait < timeout:
+        found = False
+        try:
+            for f in os.listdir(args.storage):
+                if f.endswith("_" + file_name):
+                    found = True
+                    break
+        except FileNotFoundError:
+            pass
+            
+        if found:
+            logger.info("File successfully verified and stored. Receiver finished.")
+            break
+            
+        time.sleep(1)
+        
+        # Also check if receiver crashed
+        if not receiver_proc.is_alive():
+            logger.error("Receiver process died unexpectedly.")
+            break
     
     quit_event.set()
     receiver_proc.join(timeout=5)
