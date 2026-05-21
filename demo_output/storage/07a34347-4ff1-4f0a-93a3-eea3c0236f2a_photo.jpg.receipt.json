@@ -1,0 +1,12 @@
+{
+  "transfer_id": "07a34347-4ff1-4f0a-93a3-eea3c0236f2a",
+  "file_name": "photo.jpg",
+  "file_sha256": "af3442588e937c37bf043e2c972a6a49549c14ebdf5a3412916033de5a372ab8",
+  "received_at": 1779391231.3804715,
+  "sender_node_id": "sender-01",
+  "classification_level": "critical",
+  "merkle_root": "f265c7d905014fde44505407f7c2b1c3c6807cb246427f7848e94c7ae1d2b1a8",
+  "windows_received": 1,
+  "packets_received": 356,
+  "packets_dropped": 0
+}
