@@ -32,21 +32,9 @@ def encode_window_multipass(
 ) -> List[EncodedPacket]:
     """
     Encode chunks with multi-pass fountain encoding.
-    
-    Args:
-        transfer_id: Transfer UUID
-        window_id: Window index
-        chunks: List of chunks (same size, from m4_rs_encoder output)
-        num_passes: Number of passes (1-3)
-        overhead_ratio: Overhead per pass (0.15-0.25)
-    
-    Returns:
-        All encoded packets from all passes
     """
-    if num_passes < 1 or num_passes > 3:
-        raise ValueError(f"num_passes must be 1-3, got {num_passes}")
-    
-
+    if not (1 <= num_passes <= 2):
+        raise ValueError(f"num_passes must be 1-2, got {num_passes}")
     
     if not chunks:
         raise ValueError("chunks list cannot be empty")
@@ -54,7 +42,6 @@ def encode_window_multipass(
     # Get encoder (LT or RaptorQ depending on registry)
     encoder = get_encoder("lt")
     
-    K = len(chunks)
     all_packets = []
     
     # Encode each pass independently with different seed
@@ -66,11 +53,11 @@ def encode_window_multipass(
         encoded_packets_in_pass = encoder.encode(chunks, seed=seed, overhead_ratio=overhead_ratio)
         
         # Assign metadata to each packet
-        for i, packet in enumerate(encoded_packets_in_pass):
+        for packet in encoded_packets_in_pass:
             packet.transfer_id = transfer_id
             packet.window_id = window_id
             packet.pass_id = pass_id
-            packet.packet_id = i
+            # packet_id already set by encoder.encode()
         
         all_packets.extend(encoded_packets_in_pass)
     

@@ -25,6 +25,10 @@ message TransferManifest {
   string classification_level = 19;    // "standard" | "critical" | "classified"
   int32 expiration_policy = 20;        // Seconds after which invalid
   bytes ed25519_signature = 21;        // Ed25519 signature over fields 1-20
+  string compression_algorithm = 22;   // "lz4" | "none"
+  int64 compressed_size = 23;          // bytes after compression
+  int64 original_size = 24;            // bytes before compression
+  string original_sha256 = 25;         // hex SHA-256 of original file
 }
 
 // WindowManifest: Per-window metadata

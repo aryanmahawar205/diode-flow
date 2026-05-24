@@ -81,6 +81,19 @@ def _next_power_of_2(n: int) -> int:
 
 
 @dataclass
+class MerkleProofStep:
+    """
+    One step in a Merkle proof path.
+    
+    Attributes:
+        sibling_hash: Hex hash of the sibling node.
+        is_left: True if the sibling is to the LEFT of the current node.
+    """
+    sibling_hash: str
+    is_left: bool
+
+
+@dataclass
 class MerkleTreeNode:
     """
     Single node in Merkle tree.
@@ -97,24 +110,12 @@ class MerkleTreeNode:
     level: int = 0
 
 
-def build_merkle_tree(chunks: list[bytes]) -> dict[str, MerkleTreeNode]:
+def build_merkle_tree(chunks: list[bytes]) -> tuple:
     """
     Build a Merkle tree from chunks.
 
-    Parameters:
-        chunks: list[bytes] of chunks to hash.
-
     Returns:
-        dict[hex_hash] -> MerkleTreeNode mapping all nodes in tree.
-
-    Raises:
-        ValueError: if chunks list empty.
-
-    The tree structure:
-    - Leaves (level 0): SHA-256(chunk) for each chunk
-    - Padding: if not power of 2, duplicate last leaf
-    - Parents (level > 0): SHA-256(left_child + right_child)
-    - Root: single top-level node
+        tuple (tree, child_to_parent, sibling_map, is_left_child)
     """
     if not chunks:
         raise ValueError("chunks list cannot be empty")
@@ -134,22 +135,20 @@ def build_merkle_tree(chunks: list[bytes]) -> dict[str, MerkleTreeNode]:
     while len(leaves) < padded_size:
         leaves.append(leaves[-1])  # duplicate last leaf
 
-    logger.debug(f"Padded {num_leaves} leaves to {padded_size}")
-
     # Build tree bottom-up
     tree: dict[str, MerkleTreeNode] = {}
+    current_level = leaves
+    level = 0
 
     # Add leaves to tree
-    for i, leaf_hash in enumerate(leaves):
-        tree[leaf_hash] = MerkleTreeNode(hash=leaf_hash, level=0)
+    for leaf_hash in current_level:
+        if leaf_hash not in tree:
+            tree[leaf_hash] = MerkleTreeNode(hash=leaf_hash, level=0)
 
     # Build parents iteratively
-    current_level = leaves
-    level = 1
-
     while len(current_level) > 1:
         next_level = []
-
+        level += 1
         for i in range(0, len(current_level), 2):
             left = current_level[i]
             right = current_level[i + 1]
@@ -161,123 +160,91 @@ def build_merkle_tree(chunks: list[bytes]) -> dict[str, MerkleTreeNode]:
                 right_child=right,
                 level=level,
             )
-
             next_level.append(parent)
-
         current_level = next_level
-        level += 1
 
-    # Root is the final node
-    root = current_level[0]
-    logger.debug(f"Merkle root: {root}")
+    # Post-process: build reverse lookup maps for O(1) step traversal
+    child_to_parent: dict[str, str] = {}
+    sibling_map: dict[str, str] = {}
+    is_left_child: dict[str, bool] = {}
 
-    return tree
-
-
-def get_merkle_root(tree: dict[str, MerkleTreeNode]) -> str:
-    """
-    Get root hash from tree.
-
-    Parameters:
-        tree: Tree dict from build_merkle_tree().
-
-    Returns:
-        Hex root hash.
-    """
-    # Root has the maximum level
-    max_level = max(node.level for node in tree.values())
     for node in tree.values():
-        if node.level == max_level:
-            return node.hash
-    return ""
+        if node.left_child and node.right_child:
+            child_to_parent[node.left_child] = node.hash
+            child_to_parent[node.right_child] = node.hash
+            sibling_map[node.left_child] = node.right_child
+            sibling_map[node.right_child] = node.left_child
+            is_left_child[node.left_child] = True
+            is_left_child[node.right_child] = False
+
+    return tree, child_to_parent, sibling_map, is_left_child
+
+
+def get_merkle_root(tree_data: tuple) -> str:
+    """
+    Get root hash from tree data.
+    """
+    tree = tree_data[0]
+    # Root has the maximum level
+    max_level = -1
+    root_hash = ""
+    for node in tree.values():
+        if node.level > max_level:
+            max_level = node.level
+            root_hash = node.hash
+    return root_hash
 
 
 def get_merkle_proof(
-    tree: dict[str, MerkleTreeNode],
+    tree_data: tuple,
     chunk_index: int,
     chunks: list[bytes],
-) -> list[str]:
+) -> list[MerkleProofStep]:
     """
-    Get proof path from chunk to root.
-
-    Parameters:
-        tree: Tree dict from build_merkle_tree().
-        chunk_index: Which chunk (0-indexed in original list).
-        chunks: Original chunks list (to compute leaf hash).
-
-    Returns:
-        list[str] of sibling hashes walking from leaf to root.
-
-    The proof allows receiver to verify:
-    - Compute path from chunk_leaf through siblings to root
-    - If final hash matches expected root, chunk is authentic
+    Get O(log N) proof generation using reverse lookup.
     """
     if chunk_index < 0 or chunk_index >= len(chunks):
-        raise ValueError(f"chunk_index {chunk_index} out of range [0, {len(chunks)})")
+        raise ValueError(f"chunk_index {chunk_index} out of range")
 
-    # Start with leaf hash
+    tree, child_to_parent, sibling_map, is_left_child = tree_data
+    
     leaf_hash = _sha256_hash(chunks[chunk_index])
-
     if leaf_hash not in tree:
-        raise ValueError(f"Chunk {chunk_index} not in tree")
+        raise ValueError("Leaf not in tree")
 
     proof = []
     current = leaf_hash
-
-    # Walk up tree, collecting siblings
-    while True:
-        node = tree[current]
-
-        # Find parent (if exists)
-        parent_node = None
-        for n in tree.values():
-            if n.left_child == current:
-                sibling = n.right_child
-                parent_node = n
-                break
-            elif n.right_child == current:
-                sibling = n.left_child
-                parent_node = n
-                break
-
-        if parent_node is None:
-            # Reached root
-            break
-
-        proof.append(sibling)
-        current = parent_node.hash
-
+    
+    while current in child_to_parent:
+        sibling = sibling_map[current]
+        # if WE are the right child, then sibling is LEFT
+        is_sibling_left = not is_left_child[current]
+        
+        proof.append(MerkleProofStep(
+            sibling_hash=sibling,
+            is_left=is_sibling_left
+        ))
+        current = child_to_parent[current]
+        
     return proof
 
 
 def verify_merkle_proof(
     chunk_hash: str,
-    proof: list[str],
+    proof: list[MerkleProofStep],
     expected_root: str,
 ) -> bool:
     """
-    Verify a Merkle proof.
-
-    Parameters:
-        chunk_hash: Hex SHA-256 of chunk data.
-        proof: Proof path from leaf to root.
-        expected_root: Expected root hash.
-
-    Returns:
-        True if proof is valid, False otherwise.
-
-    The verification:
-    1. Start with chunk_hash
-    2. For each sibling in proof, compute parent
-    3. Final result should match expected_root
+    Verify proof with correct left/right ordering.
     """
+    import hmac
     current = chunk_hash
-
-    for sibling in proof:
-        # Combine current and sibling (order: current comes from lower tree level)
-        # In a standard binary tree, we concatenate based on position
-        # For simplicity: always hash(current_bytes + sibling_bytes)
-        combined = bytes.fromhex(current) + bytes.fromhex(sibling)
+    for step in proof:
+        if step.is_left:
+            # Sibling is left, current is right
+            combined = bytes.fromhex(step.sibling_hash) + bytes.fromhex(current)
+        else:
+            # Current is left, sibling is right
+            combined = bytes.fromhex(current) + bytes.fromhex(step.sibling_hash)
         current = hashlib.sha256(combined).hexdigest()
-
-    return current == expected_root
+    return hmac.compare_digest(current, expected_root)

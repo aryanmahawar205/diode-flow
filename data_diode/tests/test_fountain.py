@@ -115,6 +115,7 @@ class TestLTEncoder:
             assert p1.degree == p2.degree
             assert p1.seed == p2.seed
             assert p1.data == p2.data
+            assert p1.chunk_ids == p2.chunk_ids
 
     def test_encode_different_seeds_different_packets(self):
         """Different seeds produce different packets."""
@@ -221,11 +222,15 @@ class TestLTDecoder:
         # Some chunks may be None
         assert any(c is None for c in result.chunks) or result.success
 
-    def test_decode_empty_pool_raises_valueerror(self):
-        """Decoding empty packet pool raises ValueError."""
+    def test_decode_empty_pool_returns_all_missing(self):
+        """Decoding empty packet pool returns graceful DecodeResult with all chunks missing."""
         decoder = LTDecoder()
-        with pytest.raises(ValueError, match="packet pool cannot be empty"):
-            decoder.decode([], K=1)
+        result = decoder.decode([], K=10)
+        assert not result.success
+        assert result.recovered_count == 0
+        assert len(result.chunks) == 10
+        assert all(c is None for c in result.chunks)
+        assert len(result.missing_ids) == 10
 
     def test_decode_zero_K_raises_valueerror(self):
         """K=0 raises ValueError."""

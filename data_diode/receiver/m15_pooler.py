@@ -38,167 +38,101 @@ class PooledPacket:
     timestamp: float = field(default_factory=time.time)
 
 
+from data_diode.fountain.interface import EncodedPacket
+
 class PacketPool:
     """
     Manages pools of received packets per transfer/window.
-
-    Structure:
-    transfer_id -> window_id -> set of PooledPacket
+    Supports multi-pass unified decoding.
     """
 
-    def __init__(self, ttl_ms: int = 300000):
+    def __init__(self, ttl_seconds: int = 300):
         """
         Initialize packet pool.
-
-        Parameters:
-            ttl_ms: Time-to-live for transfers (milliseconds).
         """
-        self.ttl_ms = ttl_ms
-        self.pools: Dict[str, Dict[int, list[PooledPacket]]] = {}
+        self.ttl_seconds = ttl_seconds
+        # transfer_id -> window_id -> (pass_id, packet_id) -> EncodedPacket
+        self.pools: Dict[str, Dict[int, Dict[tuple[int, int], EncodedPacket]]] = {}
+        self.last_activity: Dict[str, float] = {}
         self.dedup_sets: Dict[str, Set[tuple[int, int, int]]] = {}
 
     def add_packet(
         self,
         transfer_id: str,
         window_id: int,
-        packet: PooledPacket
+        packet: EncodedPacket
     ) -> bool:
         """
         Add a packet to the pool.
-
-        Parameters:
-            transfer_id: Transfer identifier.
-            window_id: Window number.
-            packet: PooledPacket to add.
-
-        Returns:
-            True if packet added, False if duplicate.
         """
-        # Initialize transfer if needed
         if transfer_id not in self.pools:
             self.pools[transfer_id] = {}
             self.dedup_sets[transfer_id] = set()
 
-        # Check for duplicate
         dedup_key = (window_id, packet.pass_id, packet.packet_id)
         if dedup_key in self.dedup_sets[transfer_id]:
-            logger.debug(f"Duplicate packet: {transfer_id}[{window_id}] pass={packet.pass_id} id={packet.packet_id}")
             return False
 
-        # Add to pool
         if window_id not in self.pools[transfer_id]:
-            self.pools[transfer_id][window_id] = []
+            self.pools[transfer_id][window_id] = {}
 
-        self.pools[transfer_id][window_id].append(packet)
+        self.pools[transfer_id][window_id][(packet.pass_id, packet.packet_id)] = packet
         self.dedup_sets[transfer_id].add(dedup_key)
+        self.last_activity[transfer_id] = time.time()
 
         return True
 
-    def get_packets(
-        self,
-        transfer_id: str,
-        window_id: int
-    ) -> list[PooledPacket]:
+    def is_ready_to_decode(self, transfer_id: str, window_id: int, K_prime: int, timeout: float = 5.0) -> bool:
         """
-        Get all packets for a window.
-
-        Parameters:
-            transfer_id: Transfer identifier.
-            window_id: Window number.
-
-        Returns:
-            List of PooledPacket objects (may be empty).
+        Check if a window pool is ready for decoding.
+        Ready if count >= K_prime * 1.05 OR idle for timeout seconds.
         """
-        if transfer_id not in self.pools:
+        count = self.get_packet_count(transfer_id, window_id)
+        if count >= int(K_prime * 1.05) + 1:
+            return True
+        
+        idle_seconds = time.time() - self.last_activity.get(transfer_id, 0)
+        if count > 0 and idle_seconds > timeout:
+            return True
+            
+        return False
+
+    def get_unified_pool(self, transfer_id: str, window_id: int) -> list[EncodedPacket]:
+        """Return all packets for a window as a flat list."""
+        if transfer_id not in self.pools or window_id not in self.pools[transfer_id]:
             return []
-
-        if window_id not in self.pools[transfer_id]:
-            return []
-
-        return self.pools[transfer_id][window_id]
-
-    def get_window_count(self, transfer_id: str) -> int:
-        """
-        Get number of windows with packets for a transfer.
-
-        Parameters:
-            transfer_id: Transfer identifier.
-
-        Returns:
-            Number of windows.
-        """
-        if transfer_id not in self.pools:
-            return 0
-
-        return len(self.pools[transfer_id])
+        return list(self.pools[transfer_id][window_id].values())
 
     def get_packet_count(self, transfer_id: str, window_id: int) -> int:
-        """
-        Get packet count for a window.
-
-        Parameters:
-            transfer_id: Transfer identifier.
-            window_id: Window number.
-
-        Returns:
-            Number of packets in pool for this window.
-        """
-        return len(self.get_packets(transfer_id, window_id))
+        """Get packet count for a window."""
+        if transfer_id not in self.pools or window_id not in self.pools[transfer_id]:
+            return 0
+        return len(self.pools[transfer_id][window_id])
 
     def cleanup_old_transfers(self) -> int:
-        """
-        Remove transfers older than TTL.
-
-        Returns:
-            Number of transfers removed.
-        """
+        """Remove transfers older than TTL."""
         now = time.time()
-        ttl_seconds = self.ttl_ms / 1000.0
         to_remove = []
 
-        for transfer_id in self.pools:
-            if not self.pools[transfer_id]:
-                to_remove.append(transfer_id)
-                continue
+        for tid, last_at in self.last_activity.items():
+            if now - last_at > self.ttl_seconds:
+                to_remove.append(tid)
 
-            # Check oldest packet in transfer
-            oldest_time = min(
-                min((p.timestamp for p in packets) or [now])
-                for packets in self.pools[transfer_id].values()
-            )
-
-            age = now - oldest_time
-            if age > ttl_seconds:
-                to_remove.append(transfer_id)
-
-        for transfer_id in to_remove:
-            del self.pools[transfer_id]
-            del self.dedup_sets[transfer_id]
+        for tid in to_remove:
+            self.clear_transfer(tid)
 
         return len(to_remove)
 
     def clear_transfer(self, transfer_id: str) -> int:
-        """
-        Clear all packets for a transfer.
-
-        Parameters:
-            transfer_id: Transfer identifier.
-
-        Returns:
-            Number of packets cleared.
-        """
+        """Clear all packets for a transfer."""
         if transfer_id not in self.pools:
             return 0
-
-        total = sum(
-            len(packets)
-            for packets in self.pools[transfer_id].values()
-        )
-
-        del self.pools[transfer_id]
-        del self.dedup_sets[transfer_id]
-
-        return total
+        
+        count = len(self.dedup_sets.get(transfer_id, set()))
+        self.pools.pop(transfer_id, None)
+        self.dedup_sets.pop(transfer_id, None)
+        self.last_activity.pop(transfer_id, None)
+        return count
 
     def pool_size(self) -> int:
         """

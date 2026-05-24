@@ -34,187 +34,66 @@ class ValidationError:
     reason: str = ""
 
 
+import time
+
 class PacketValidator:
-    """Validates received packets."""
+    """Validates received packets against hard limits and manifest."""
 
     def __init__(
         self,
-        max_payload_size: int = 2048,
+        max_payload_size: int = 1500,
         max_packet_id: int = 1000000,
-        max_degree: int = 1000,
+        max_degree: int = 512,
+        max_chunk_ids: int = 512,
     ):
         """
-        Initialize validator.
-
-        Parameters:
-            max_payload_size: Reject payloads larger than this.
-            max_packet_id: Reject packet_id > this (prevent overflow).
-            max_degree: Reject fountain degree > this.
+        Initialize validator with hard limits.
         """
         self.max_payload_size = max_payload_size
         self.max_packet_id = max_packet_id
         self.max_degree = max_degree
+        self.max_chunk_ids = max_chunk_ids
+        self.seen_timestamps = {} # transfer_id -> last_timestamp
 
-    def validate_payload_size(self, payload: bytes) -> ValidationError:
+    def validate_packet(self, packet: any, manifest: any) -> ValidationError:
         """
-        Check payload is within bounds.
-
-        Parameters:
-            payload: Packet payload bytes.
-
-        Returns:
-            ValidationError with valid=True if acceptable.
+        Comprehensive packet validation.
         """
-        if len(payload) == 0:
-            return ValidationError(False, "Empty payload")
+        # Transfer ID match
+        if packet.transfer_id != manifest.transfer_id:
+            return ValidationError(False, "transfer_id mismatch")
 
-        if len(payload) > self.max_payload_size:
-            return ValidationError(
-                False,
-                f"Payload too large: {len(payload)} > {self.max_payload_size}"
-            )
+        # Bounds checks
+        if not (0 <= packet.window_id < manifest.total_windows):
+            return ValidationError(False, f"window_id {packet.window_id} out of range")
+        
+        if not (0 <= packet.pass_id < manifest.num_passes):
+            return ValidationError(False, f"pass_id {packet.pass_id} out of range")
+
+        if not (0 <= packet.packet_id <= self.max_packet_id):
+            return ValidationError(False, f"packet_id {packet.packet_id} out of range")
+
+        if not (1 <= packet.fountain_degree <= self.max_degree):
+            return ValidationError(False, f"degree {packet.fountain_degree} out of range")
+        
+        if len(packet.chunk_ids) != packet.fountain_degree:
+            return ValidationError(False, "chunk_ids length mismatch with degree")
+
+        if any(not (0 <= cid < packet.source_chunk_count) for cid in packet.chunk_ids):
+            return ValidationError(False, "chunk_id out of range")
+
+        if len(packet.payload) > self.max_payload_size:
+            return ValidationError(False, f"payload too large: {len(packet.payload)}")
 
         return ValidationError(True)
 
-    def validate_packet_id(self, packet_id: int) -> ValidationError:
-        """
-        Check packet_id is valid.
-
-        Parameters:
-            packet_id: Packet sequence number from header.
-
-        Returns:
-            ValidationError with valid=True if acceptable.
-        """
-        if packet_id < 0:
-            return ValidationError(False, f"packet_id negative: {packet_id}")
-
-        if packet_id > self.max_packet_id:
-            return ValidationError(
-                False,
-                f"packet_id too large: {packet_id} > {self.max_packet_id}"
-            )
-
-        return ValidationError(True)
-
-    def validate_window_id(self, window_id: int, total_windows: int) -> ValidationError:
-        """
-        Check window_id is valid for transfer.
-
-        Parameters:
-            window_id: Window number from packet.
-            total_windows: Total windows in transfer (from manifest).
-
-        Returns:
-            ValidationError with valid=True if acceptable.
-        """
-        if window_id < 0:
-            return ValidationError(False, f"window_id negative: {window_id}")
-
-        if window_id >= total_windows:
-            return ValidationError(
-                False,
-                f"window_id out of range: {window_id} >= {total_windows}"
-            )
-
-        return ValidationError(True)
-
-    def validate_fountain_degree(self, degree: int) -> ValidationError:
-        """
-        Check fountain degree is valid.
-
-        Parameters:
-            degree: XOR combination degree (1 to K).
-
-        Returns:
-            ValidationError with valid=True if acceptable.
-        """
-        if degree <= 0:
-            return ValidationError(False, f"degree must be positive: {degree}")
-
-        if degree > self.max_degree:
-            return ValidationError(
-                False,
-                f"degree too large: {degree} > {self.max_degree}"
-            )
-
-        return ValidationError(True)
-
-    def validate_pass_id(self, pass_id: int, max_passes: int) -> ValidationError:
-        """
-        Check pass_id is valid for transfer.
-
-        Parameters:
-            pass_id: Encoding pass number.
-            max_passes: Total passes in transfer (from manifest).
-
-        Returns:
-            ValidationError with valid=True if acceptable.
-        """
-        if pass_id < 0:
-            return ValidationError(False, f"pass_id negative: {pass_id}")
-
-        if pass_id >= max_passes:
-            return ValidationError(
-                False,
-                f"pass_id out of range: {pass_id} >= {max_passes}"
-            )
-
-        return ValidationError(True)
-
-    def validate_transfer_id(self, transfer_id: str) -> ValidationError:
-        """
-        Check transfer_id format.
-
-        Parameters:
-            transfer_id: Transfer UUID.
-
-        Returns:
-            ValidationError with valid=True if acceptable.
-        """
-        if not transfer_id:
-            return ValidationError(False, "transfer_id is empty")
-
-        if len(transfer_id) > 128:
-            return ValidationError(
-                False,
-                f"transfer_id too long: {len(transfer_id)} > 128"
-            )
-
-        return ValidationError(True)
-
-    def validate_crc32c(
-        self,
-        payload: bytes,
-        crc32c_value: int
-    ) -> ValidationError:
-        """
-        Check CRC32C checksum.
-
-        Parameters:
-            payload: Packet data to verify.
-            crc32c_value: Expected CRC32C value.
-
-        Returns:
-            ValidationError with valid=True if checksum matches.
-
-        Note: Requires crcmod dependency.
-        """
-        try:
-            import crcmod
-        except ImportError:
-            logger.warning("crcmod not available, skipping CRC validation")
-            return ValidationError(True)
-
+    def validate_crc32c(self, payload: bytes, expected_crc: int) -> ValidationError:
+        """Verify CRC32C of payload."""
+        import crcmod
         crc_func = crcmod.mkCrcFun(0x11EDC6F41, initCrc=0, xorOut=0xffffffff)
-        computed = crc_func(payload)
-
-        if computed != crc32c_value:
-            return ValidationError(
-                False,
-                f"CRC32C mismatch: computed {computed:08x}, expected {crc32c_value:08x}"
-            )
-
+        actual_crc = crc_func(payload)
+        if actual_crc != expected_crc:
+            return ValidationError(False, f"CRC32C mismatch: {actual_crc:08x} != {expected_crc:08x}")
         return ValidationError(True)
 
 

@@ -32,59 +32,60 @@ from data_diode.fountain.interface import IFountainEncoder, EncodedPacket
 logger = logging.getLogger(__name__)
 
 
+import numpy as np
+
 # Global cache for Robust Soliton distributions to avoid re-calculation
 _SOLITON_CACHE: dict[int, list[float]] = {}
 
 
-def _get_robust_soliton_distribution(K: int, delta: float = 0.1) -> list[float]:
+def _robust_soliton(K: int, c: float = 0.03, delta: float = 0.02) -> list[float]:
     """
-    Get the Robust Soliton distribution for a given K, cached.
+    Standard Robust Soliton Distribution.
+    
+    Parameters:
+        K: Number of source symbols.
+        c: Constant (default 0.03).
+        delta: Failure probability (default 0.02).
     """
     if K in _SOLITON_CACHE:
         return _SOLITON_CACHE[K]
-        
+
+    R = c * math.log(K / delta) * math.sqrt(K)
+    pivot = min(K, max(1, int(math.floor(K / R))))
+
     # Ideal Soliton distribution rho(d)
     rho = [0.0] * (K + 1)
     rho[1] = 1.0 / K
     for d in range(2, K + 1):
         rho[d] = 1.0 / (d * (d - 1))
-        
-    # Robust component tau(d)
-    c = 0.2 # constant
-    S = c * (K ** 0.5) * (math.log(K / delta) ** 2)
-    S = max(S, 1.0)
-    
+
+    # Correction term tau(d)
     tau = [0.0] * (K + 1)
-    K_S = int(round(K / S))
-    K_S = max(1, min(K_S, K))
-    
-    for d in range(1, K_S):
-        tau[d] = S / (K * d)
-    tau[K_S] = S * math.log(S / delta) / K
-    
+    for d in range(1, pivot):
+        tau[d] = R / (d * K)
+    if pivot >= 1:
+        tau[pivot] = (R * math.log(R / delta)) / K
+
     # Combined distribution mu(d)
-    mu = [rho[d] + tau[d] for d in range(1, K + 1)]
-    total = sum(mu)
-    mu = [m / total for m in mu]
-    
+    mu_raw = [rho[d] + tau[d] for d in range(K + 1)]
+    Z = sum(mu_raw[1:])
+    mu = [0.0] + [mu_raw[d] / Z for d in range(1, K + 1)]
+
     _SOLITON_CACHE[K] = mu
     return mu
 
 
-def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> int:
-    """
-    Generate a degree sample from Robust Soliton Distribution.
-    """
+def _sample_degree(K: int, rng: random.Random) -> int:
+    """Sample a degree from Robust Soliton Distribution."""
     if K == 1:
         return 1
         
-    mu = _get_robust_soliton_distribution(K, delta)
+    mu = _robust_soliton(K)
     
-    # Sample
     r = rng.random()
     cumsum = 0.0
     for d in range(1, K + 1):
-        cumsum += mu[d-1]
+        cumsum += mu[d]
         if r <= cumsum:
             return d
             
@@ -92,7 +93,7 @@ def _robust_soliton_degree(K: int, rng: random.Random, delta: float = 0.1) -> in
 
 
 class LTEncoder(IFountainEncoder):
-    """LT encoder with Robust Soliton degree distribution."""
+    """LT encoder with Robust Soliton degree distribution and numpy XOR."""
 
     def encode(
         self,
@@ -120,36 +121,47 @@ class LTEncoder(IFountainEncoder):
                     f"Chunk {i} size {len(chunk)} != {chunk_size}"
                 )
 
-        # Pre-convert chunks to integers for faster XORing
-        chunk_ints = [int.from_bytes(c, "big") for c in chunks]
+        # Pre-convert chunks to numpy arrays for faster XORing
+        chunk_arrays = [np.frombuffer(c, dtype=np.uint8) for c in chunks]
 
         # Generate encoded packets
         num_packets = int(K * (1.1 + overhead_ratio)) + 2
         encoded = []
 
+        # Create RNG instance for this encoding session
+        # Individual packet seeds derived from this
+        session_rng = random.Random(seed)
+
         for packet_index in range(num_packets):
-            # Seed PRNG for reproducibility
-            packet_seed = seed + packet_index
-            rng = random.Random(packet_seed)
+            # Deterministic packet seed
+            packet_seed = session_rng.randint(0, 0xFFFFFFFF)
+            packet_rng = random.Random(packet_seed)
 
             # Sample degree from Robust Soliton
-            degree = _robust_soliton_degree(K, rng)
+            degree = _sample_degree(K, packet_rng)
+
+            # Cap degree to ensure packet fits in UDP MTU (1500 bytes)
+            # Degree 128 + 512B payload + metadata approx 1.1 KB
+            degree = min(degree, 128)
 
             # Randomly select which chunks to XOR
-            selected_indices = rng.sample(range(K), min(degree, K))
+            # We use packet_rng to ensure it's reproducible from the packet_seed
+            chunk_ids = sorted(packet_rng.sample(range(K), min(degree, K)))
 
-            # XOR selected chunks (optimized)
-            res_int = 0
-            for idx in selected_indices:
-                res_int ^= chunk_ints[idx]
-
-            encoded_data = res_int.to_bytes(chunk_size, "big")
+            # XOR selected chunks using numpy (vectorized)
+            res_arr = np.zeros(chunk_size, dtype=np.uint8)
+            for idx in chunk_ids:
+                res_arr ^= chunk_arrays[idx]
 
             encoded.append(
                 EncodedPacket(
-                    degree=degree,
+                    packet_id=packet_index,
+                    pass_id=0, # set by pipeline
                     seed=packet_seed,
-                    data=encoded_data,
+                    degree=len(chunk_ids),
+                    chunk_ids=chunk_ids,
+                    data=res_arr.tobytes(),
+                    source_chunk_count=K,
                 )
             )
 

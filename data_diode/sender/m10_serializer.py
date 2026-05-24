@@ -41,15 +41,6 @@ PACKET_VERSION = 1
 def serialize_packet(packet_obj: any, shared_secret: bytes) -> bytes:
     """
     Serialize an encoded packet using Protobuf.
-
-    Parameters:
-        packet_obj: Object with packet metadata and payload.
-                    Expected to have: transfer_id, window_id, pass_id, packet_id,
-                    degree, seed, data (payload).
-        shared_secret: 32-byte secret for BLAKE3-MAC.
-
-    Returns:
-        Bytes containing serialized Protobuf message.
     """
     from data_diode.sender.m9_metadata import compute_crc32c, compute_blake3_mac
 
@@ -61,12 +52,13 @@ def serialize_packet(packet_obj: any, shared_secret: bytes) -> bytes:
     proto.fountain_degree = packet_obj.degree
     proto.fountain_seed = packet_obj.seed
     proto.payload = packet_obj.data
+    proto.chunk_ids.extend(getattr(packet_obj, "chunk_ids", []))
+    proto.source_chunk_count = getattr(packet_obj, "source_chunk_count", 0)
 
     # Compute CRC32C over payload
     proto.crc32c = compute_crc32c(proto.payload)
 
     # Compute BLAKE3-MAC over entire proto (so far)
-    # To be stable, we serialize once without MAC, then compute MAC, then set it.
     proto_no_mac = proto.SerializeToString()
     proto.blake3_mac = compute_blake3_mac(proto_no_mac, shared_secret)
 
@@ -76,13 +68,6 @@ def serialize_packet(packet_obj: any, shared_secret: bytes) -> bytes:
 def deserialize_packet(data: bytes, shared_secret: Optional[bytes] = None) -> any:
     """
     Deserialize an encoded packet using Protobuf.
-
-    Parameters:
-        data: Serialized packet bytes.
-        shared_secret: If provided, verify BLAKE3-MAC.
-
-    Returns:
-        Namespace or object with packet fields.
     """
     from data_diode.sender.m9_metadata import compute_blake3_mac
     import hmac
@@ -108,18 +93,6 @@ def deserialize_packet(data: bytes, shared_secret: Optional[bytes] = None) -> an
 def serialize_manifest(manifest: TransferManifest) -> bytes:
     """
     Serialize a TransferManifest to bytes.
-
-    Parameters:
-        manifest: TransferManifest to serialize.
-
-    Returns:
-        Bytes containing serialized manifest.
-
-    Format:
-    - 1 byte: version
-    - 4 bytes: payload length (big-endian)
-    - N bytes: JSON payload
-    - 4 bytes: CRC32C checksum
     """
     # Convert manifest to JSON
     manifest_dict = {
@@ -144,9 +117,14 @@ def serialize_manifest(manifest: TransferManifest) -> bytes:
         "classification_level": manifest.classification_level,
         "expiration_policy": manifest.expiration_policy,
         "ed25519_signature": manifest.ed25519_signature.hex(),
+        "compression_algorithm": manifest.compression_algorithm,
+        "compressed_size": manifest.compressed_size,
+        "original_size": manifest.original_size,
+        "original_sha256": manifest.original_sha256,
     }
 
     json_bytes = json.dumps(manifest_dict).encode("utf-8")
+    ...
 
     # Build frame
     frame = BytesIO()
@@ -227,6 +205,10 @@ def deserialize_manifest(data: bytes) -> TransferManifest:
         classification_level=manifest_dict["classification_level"],
         expiration_policy=manifest_dict["expiration_policy"],
         ed25519_signature=bytes.fromhex(manifest_dict["ed25519_signature"]),
+        compression_algorithm=manifest_dict.get("compression_algorithm", "none"),
+        compressed_size=manifest_dict.get("compressed_size", 0),
+        original_size=manifest_dict.get("original_size", 0),
+        original_sha256=manifest_dict.get("original_sha256", ""),
     )
 
 

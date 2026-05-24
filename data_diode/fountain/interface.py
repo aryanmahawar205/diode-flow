@@ -30,40 +30,26 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EncodedPacket:
-    """
-    A single encoded packet from the fountain encoder.
-    
-    Attributes:
-        degree: Number of source chunks XORed into this packet.
-        seed: PRNG seed used to select which chunks to XOR.
-        data: The XORed chunk data (bytes).
-        transfer_id: Transfer UUID (optional for basic encoder)
-        window_id: Window index (optional for basic encoder)
-        pass_id: Encoding pass index (optional for basic encoder)
-        packet_id: Sequence number within pass (optional for basic encoder)
-    """
-    degree: int
-    seed: int
-    data: bytes
-    transfer_id: str = ""
-    window_id: int = 0
-    pass_id: int = 0
-    packet_id: int = 0
+    """One fountain-encoded packet."""
+    packet_id: int          # unique within pass — for deduplication
+    pass_id: int            # which transmission pass (0, 1)
+    seed: int               # PRNG seed for this pass
+    degree: int             # number of source chunks XOR'd
+    chunk_ids: list[int]    # WHICH chunks were XOR'd — decoder reads directly
+    data: bytes             # XOR'd payload
+    source_chunk_count: int # K' = K + RS parity chunks
+    transfer_id: str = ""   # routing metadata
+    window_id: int = 0      # routing metadata
 
 
 @dataclass
 class DecodeResult:
-    """
-    Result of a fountain decode attempt.
-    
-    Attributes:
-        chunks: list[bytes | None] where None indicates missing chunk.
-        missing_ids: list[int] of chunk indices that could not be recovered.
-        success: bool indicating if all chunks were recovered.
-    """
-    chunks: list[bytes | None]
-    missing_ids: list[int]
+    """Result of fountain decode."""
+    chunks: list[bytes | None]   # None = not recovered
     success: bool
+    recovered_count: int
+    missing_ids: list[int]
+    packets_used: int
 
 
 class IFountainEncoder(ABC):

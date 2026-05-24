@@ -52,97 +52,61 @@ def parse_rs_config(config_str: str) -> RSConfig:
     return RSConfig(n=n, k=k)
 
 
+import numpy as np
+
 def encode_with_rs(chunks: List[bytes], rs_config: RSConfig) -> List[bytes]:
     """
-    Encode chunks with Reed-Solomon parity using reedsolo library.
-    
-    Handles multiple RS blocks if the number of chunks exceeds rs_config.k.
-    
-    Args:
-        chunks: List of chunks (all must be same size)
-        rs_config: RS(n, k) configuration
-    
-    Returns:
-        Original chunks + parity chunks appended for each block
+    Encode chunks with Reed-Solomon parity using NumPy for speed.
     """
     if not chunks:
         raise ValueError("chunks list cannot be empty")
     
     chunk_size = len(chunks[0])
-    for i, chunk in enumerate(chunks):
-        if len(chunk) != chunk_size:
-            raise ValueError(f"Chunk {i} has size {len(chunk)}, expected {chunk_size}")
-    
-    # Split chunks into blocks of size rs_config.k
     K_total = len(chunks)
     num_blocks = (K_total + rs_config.k - 1) // rs_config.k
     
     rs = reedsolo.RSCodec(rs_config.num_parity)
-    
     all_chunks_with_parity = []
     
     for b in range(num_blocks):
         block_start = b * rs_config.k
         block_end = min((b + 1) * rs_config.k, K_total)
-        block_chunks = chunks[block_start:block_end]
+        block_chunks_data = chunks[block_start:block_end]
         
-        # Pad last block if needed to rs_config.k
-        if len(block_chunks) < rs_config.k:
-            padding = [b"\x00" * chunk_size for _ in range(rs_config.k - len(block_chunks))]
-            block_chunks.extend(padding)
-            
-        # Apply RS across chunks (byte-by-byte for each position)
-        # block_chunks is a list of k chunks, each chunk_size bytes
-        # We want to produce n - k parity chunks
+        # Pad last block if needed
+        if len(block_chunks_data) < rs_config.k:
+            padding = [b"\x00" * chunk_size for _ in range(rs_config.k - len(block_chunks_data))]
+            block_chunks_data.extend(padding)
         
-        parity_data = [bytearray() for _ in range(rs_config.num_parity)]
+        # Prepare matrix (k x chunk_size)
+        block_matrix = np.stack([np.frombuffer(c, dtype=np.uint8) for c in block_chunks_data])
         
+        # Parity matrix (num_parity x chunk_size)
+        parity_matrix = np.zeros((rs_config.num_parity, chunk_size), dtype=np.uint8)
+        
+        # Apply RS across chunks
         for j in range(chunk_size):
-            # Extract byte j from all chunks in block
-            byte_slice = bytes([block_chunks[i][j] for i in range(rs_config.k)])
-            # Encode with RS
-            encoded_slice = rs.encode(byte_slice)
-            # The last num_parity bytes are the parity
-            for p in range(rs_config.num_parity):
-                parity_data[p].append(encoded_slice[rs_config.k + p])
+            byte_slice = block_matrix[:, j].tobytes()
+            encoded = rs.encode(byte_slice)
+            # Extracted parity bytes
+            parity_matrix[:, j] = np.frombuffer(encoded[rs_config.k:], dtype=np.uint8)
         
-        # Add original chunks (from this block) and then the parity chunks
-        # Note: we use block_chunks which includes padding for the last block
-        all_chunks_with_parity.extend(block_chunks)
-        all_chunks_with_parity.extend([bytes(p) for p in parity_data])
-        
+        # Add to result
+        all_chunks_with_parity.extend(block_chunks_data)
+        for p in range(rs_config.num_parity):
+            all_chunks_with_parity.append(parity_matrix[p, :].tobytes())
+            
     return all_chunks_with_parity
 
 
 def decode_with_rs(chunks_with_erasures: List[bytes | None], rs_config: RSConfig) -> List[bytes]:
     """
-    Decode chunks using Reed-Solomon parity.
-    
-    Args:
-        chunks_with_erasures: Chunks where None indicates missing/corrupted
-        rs_config: RS(n, k) configuration
-    
-    Returns:
-        Recovered original chunks (without parity)
+    Decode chunks with Reed-Solomon using NumPy for speed.
     """
     if not chunks_with_erasures:
         raise ValueError("chunks list cannot be empty")
     
-    chunk_size = None
-    for chunk in chunks_with_erasures:
-        if chunk is not None:
-            chunk_size = len(chunk)
-            break
-    
-    if chunk_size is None:
-        raise ValueError("Cannot determine chunk size: all chunks are None")
-    
-    # Total chunks in pool should be a multiple of rs_config.n
-    if len(chunks_with_erasures) % rs_config.n != 0:
-        # If not multiple, it might be due to missing trailing chunks or something
-        # For Phase 2/3, we assume the list is the full n * num_blocks
-        pass
-
+    chunk_size = next(len(c) for c in chunks_with_erasures if c is not None)
     num_blocks = len(chunks_with_erasures) // rs_config.n
     rs = reedsolo.RSCodec(rs_config.num_parity)
     
@@ -152,44 +116,33 @@ def decode_with_rs(chunks_with_erasures: List[bytes | None], rs_config: RSConfig
         block_start = b * rs_config.n
         block_chunks = chunks_with_erasures[block_start : block_start + rs_config.n]
         
-        # Positions of erasures in this block
         erasures_pos = [i for i, c in enumerate(block_chunks) if c is None]
         
         if len(erasures_pos) > rs_config.num_parity:
-            raise ValueError(
-                f"Block {b}: Too many erasures ({len(erasures_pos)}) for RS parity ({rs_config.num_parity})"
-            )
+            raise ValueError(f"Block {b}: Too many erasures ({len(erasures_pos)})")
             
         if not erasures_pos:
-            # No erasures in this block, just take the first k
-            recovered_data_chunks.extend([c for c in block_chunks[:rs_config.k]])
+            recovered_data_chunks.extend(block_chunks[:rs_config.k])
             continue
             
         # Reconstruct block
-        block_recovered = [bytearray(chunk_size) for _ in range(rs_config.k)]
+        block_matrix = np.zeros((rs_config.n, chunk_size), dtype=np.uint8)
+        for i, c in enumerate(block_chunks):
+            if c is not None:
+                block_matrix[i] = np.frombuffer(c, dtype=np.uint8)
+        
+        recovered_matrix = np.zeros((rs_config.k, chunk_size), dtype=np.uint8)
         
         for j in range(chunk_size):
-            # Extract byte j from all non-None chunks
-            # For reedsolo, we can pass erasures_pos
-            # But reedsolo.decode expects the full n bytes with dummy values at erasures
-            byte_slice = []
-            for i in range(rs_config.n):
-                if block_chunks[i] is None:
-                    byte_slice.append(0)
-                else:
-                    byte_slice.append(block_chunks[i][j])
-            
+            byte_slice = block_matrix[:, j].tobytes()
             try:
-                # Use rs_correct_msg directly as some versions of RSCodec.decode 
-                # have different signatures for erasures.
-                # rs_correct_msg returns (decoded_msg, decoded_ecc, errata_pos)
-                decoded_msg, _, _ = reedsolo.rs_correct_msg(bytes(byte_slice), rs_config.num_parity, erase_pos=erasures_pos)
-                for i in range(rs_config.k):
-                    block_recovered[i][j] = decoded_msg[i]
-            except (reedsolo.ReedSolomonError, TypeError) as e:
-                raise ValueError(f"RS decoding failed for block {b} at byte {j}: {e}")
+                decoded_msg, _, _ = reedsolo.rs_correct_msg(byte_slice, rs_config.num_parity, erase_pos=erasures_pos)
+                recovered_matrix[:, j] = np.frombuffer(decoded_msg[:rs_config.k], dtype=np.uint8)
+            except Exception as e:
+                raise ValueError(f"RS failed at block {b}, byte {j}: {e}")
         
-        recovered_data_chunks.extend([bytes(c) for c in block_recovered])
-        
+        for i in range(rs_config.k):
+            recovered_data_chunks.append(recovered_matrix[i, :].tobytes())
+            
     return recovered_data_chunks
 

@@ -1,0 +1,12 @@
+{
+  "transfer_id": "1365564b-942b-48db-8495-e1995ca64ba4",
+  "file_name": "sample.txt",
+  "file_sha256": "2cfa54537ddaf26d7093cc2ef515029c5990ceeb1cb8df0e0af8748ae9c50093",
+  "received_at": 1779625148.859375,
+  "sender_node_id": "sender-01",
+  "classification_level": "standard",
+  "merkle_root": "d58d5da9f2c0be89ef01eb456b73557c43ef889892d2e7ecfd6fd39bcee06ac3",
+  "windows_received": 1,
+  "packets_received": 349,
+  "packets_dropped": 0
+}

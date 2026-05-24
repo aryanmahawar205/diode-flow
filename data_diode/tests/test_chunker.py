@@ -141,7 +141,7 @@ class TestConfig:
     def test_get_profile_large_classified(self):
         """Get profile for large classified file."""
         profile = get_profile(1_000_000_000, "classified")
-        assert profile.num_passes >= 3
+        assert profile.num_passes >= 2
         assert profile.rs_k >= 8
 
     def test_get_profile_invalid_criticality_raises_valueerror(self):

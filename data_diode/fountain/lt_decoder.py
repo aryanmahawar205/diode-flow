@@ -49,8 +49,11 @@ class _CheckNode:
     connected_chunks: list[int] = field(default_factory=list)
 
 
+import numpy as np
+import collections
+
 class LTDecoder(IFountainDecoder):
-    """LT decoder using belief propagation peeling."""
+    """LT decoder using belief propagation peeling and numpy XOR."""
 
     def decode(
         self,
@@ -59,170 +62,89 @@ class LTDecoder(IFountainDecoder):
     ) -> DecodeResult:
         """
         Decode source chunks from encoded packet pool using belief propagation.
-
-        Parameters:
-            pool: list[EncodedPacket] from network or multi-pass.
-            K: Number of source symbols to recover.
-
-        Returns:
-            DecodeResult with chunks (list[bytes | None]) and missing_ids.
-
-        Raises:
-            ValueError: if pool empty or K <= 0.
         """
         if not pool:
-            raise ValueError("packet pool cannot be empty")
+            return DecodeResult(
+                chunks=[None] * K,
+                success=False,
+                recovered_count=0,
+                missing_ids=list(range(K)),
+                packets_used=0,
+            )
+
         if K <= 0:
             raise ValueError("K must be > 0")
 
         logger.debug(f"LT decode starting: K={K}, pool_size={len(pool)}")
 
-        # Determine chunk size from first packet
         chunk_size = len(pool[0].data)
+        
+        # Tanner graph components
+        # We use simple structures for speed in Python
+        packet_payloads = [np.frombuffer(p.data, dtype=np.uint8).copy() for p in pool]
+        packet_chunks = [set(p.chunk_ids) for p in pool]
+        
+        # chunk_id -> list of packet indices
+        chunk_to_packets = collections.defaultdict(list)
+        for pi, chunks in enumerate(packet_chunks):
+            for cid in chunks:
+                if cid < K: # only track source chunks
+                    chunk_to_packets[cid].append(pi)
 
-        # Initialize variable nodes (source chunks)
-        var_nodes: dict[int, _VariableNode] = {
-            i: _VariableNode(chunk_id=i)
-            for i in range(K)
-        }
+        # Recovered chunks: chunk_id -> np.array
+        recovered = {}
+        
+        # Queue of degree-1 packets
+        queue = collections.deque([pi for pi, chunks in enumerate(packet_chunks) if len(chunks) == 1])
+        processed_packets = set()
 
-        # Initialize check nodes (encoded packets)
-        check_nodes: dict[int, _CheckNode] = {}
-        for packet_id, packet in enumerate(pool):
-            check_nodes[packet_id] = _CheckNode(
-                packet_id=packet_id,
-                degree=packet.degree,
-                data=bytearray(packet.data),
-                connected_chunks=[],
-            )
-
-        # Build bipartite graph: reconstruct chunk indices from seed
-        self._build_graph(
-            var_nodes=var_nodes,
-            check_nodes=check_nodes,
-            pool=pool,
-            K=K,
-        )
-
-        # Peeling decoder: iteratively resolve degree-1 symbols
-        self._peel(
-            var_nodes=var_nodes,
-            check_nodes=check_nodes,
-            chunk_size=chunk_size,
-        )
+        while queue:
+            pi = queue.popleft()
+            if pi in processed_packets or len(packet_chunks[pi]) != 1:
+                continue
+            
+            processed_packets.add(pi)
+            
+            # This packet has degree 1, so it reveals one chunk
+            cid = next(iter(packet_chunks[pi]))
+            if cid in recovered:
+                # Already known, just propagate if needed (shouldn't happen with processed_packets check)
+                continue
+            
+            # Recover chunk
+            chunk_val = packet_payloads[pi].copy()
+            recovered[cid] = chunk_val
+            
+            # Propagate: XOR this chunk out of all other packets containing it
+            for other_pi in chunk_to_packets[cid]:
+                if other_pi == pi or other_pi in processed_packets:
+                    continue
+                
+                if cid in packet_chunks[other_pi]:
+                    # XOR out
+                    packet_payloads[other_pi] ^= chunk_val
+                    # Remove edge
+                    packet_chunks[other_pi].discard(cid)
+                    
+                    # If other packet now has degree 1, add to queue
+                    if len(packet_chunks[other_pi]) == 1:
+                        queue.append(other_pi)
 
         # Extract result
         chunks: list[bytes | None] = [None] * K
-        missing_ids: list[int] = []
-
+        missing_ids = []
         for i in range(K):
-            if var_nodes[i].is_known:
-                chunks[i] = var_nodes[i].value
+            if i in recovered:
+                chunks[i] = recovered[i].tobytes()
             else:
                 missing_ids.append(i)
 
         success = len(missing_ids) == 0
-
-        logger.debug(
-            f"LT decode result: {K - len(missing_ids)}/{K} chunks recovered, "
-            f"missing={len(missing_ids)}, success={success}"
-        )
-
+        
         return DecodeResult(
             chunks=chunks,
-            missing_ids=missing_ids,
             success=success,
+            recovered_count=len(recovered),
+            missing_ids=missing_ids,
+            packets_used=len(pool),
         )
-
-    def _build_graph(
-        self,
-        var_nodes: dict[int, _VariableNode],
-        check_nodes: dict[int, _CheckNode],
-        pool: list[EncodedPacket],
-        K: int,
-    ) -> None:
-        """
-        Rebuild the bipartite graph from encoded packets by resampling chunk indices.
-        """
-        import random
-
-        for packet_id, packet in enumerate(pool):
-            # Re-seed PRNG with packet seed to regenerate the same chunk indices
-            rng = random.Random(packet.seed)
-
-            # Skip the first value which was used for degree sampling in the encoder
-            _ = rng.random()
-            
-            # Use the degree from the packet directly
-            degree = packet.degree
-
-            # Select same chunks as encoder
-            selected_indices = rng.sample(range(K), min(degree, K))
-
-            # Update graph edges
-            check_nodes[packet_id].connected_chunks = selected_indices
-            check_nodes[packet_id].degree = len(selected_indices)
-
-            for chunk_id in selected_indices:
-                var_nodes[chunk_id].connected_packets.append(packet_id)
-
-    def _peel(
-        self,
-        var_nodes: dict[int, _VariableNode],
-        check_nodes: dict[int, _CheckNode],
-        chunk_size: int,
-    ) -> None:
-        """
-        Iteratively peel degree-1 variables and propagate values through graph.
-        Optimized version using integer XOR and sets.
-        """
-        import collections
-
-        # Optimization: use integers for XOR and sets for connectivity
-        # This is much faster in Python than repeatedly converting bytes
-        check_ints = {pid: int.from_bytes(check.data, "big") for pid, check in check_nodes.items()}
-        check_chunks = {pid: set(check.connected_chunks) for pid, check in check_nodes.items()}
-        
-        # Track which variable nodes have been resolved to their integer value
-        var_ints: dict[int, int] = {}
-
-        # Queue of known variables needing propagation
-        queue = collections.deque()
-
-        # Find initial degree-1 packets
-        for pid, chunks in check_chunks.items():
-            if len(chunks) == 1:
-                chunk_id = next(iter(chunks))
-                if chunk_id not in var_ints:
-                    var_ints[chunk_id] = check_ints[pid]
-                    var_nodes[chunk_id].is_known = True
-                    queue.append(chunk_id)
-
-        # Belief propagation peeling
-        while queue:
-            chunk_id = queue.popleft()
-            chunk_val_int = var_ints[chunk_id]
-
-            # XOR this chunk out of all connected packets
-            for pid in var_nodes[chunk_id].connected_packets:
-                if chunk_id not in check_chunks[pid]:
-                    continue
-
-                # XOR chunk_val into packet data (integer space)
-                check_ints[pid] ^= chunk_val_int
-
-                # Remove edge and decrement degree
-                check_chunks[pid].remove(chunk_id)
-
-                # If packet now has degree 1, resolve its last chunk
-                if len(check_chunks[pid]) == 1:
-                    last_chunk_id = next(iter(check_chunks[pid]))
-                    if last_chunk_id not in var_ints:
-                        var_ints[last_chunk_id] = check_ints[pid]
-                        var_nodes[last_chunk_id].is_known = True
-                        queue.append(last_chunk_id)
-
-        # Final conversion back to bytes for known variables
-        for chunk_id, val_int in var_ints.items():
-            var_nodes[chunk_id].value = val_int.to_bytes(chunk_size, "big")
-            var_nodes[chunk_id].is_known = True

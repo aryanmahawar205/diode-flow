@@ -13,4 +13,6 @@ message EncodedPacket {
   bytes payload = 7;                   // Encoded data
   uint32 crc32c = 8;                   // CRC32C of payload (fast integrity)
   bytes blake3_mac = 9;                // BLAKE3-MAC of metadata+payload
+  repeated int32 chunk_ids = 10;       // WHICH chunks were XOR'd
+  int32 source_chunk_count = 11;       // K' = K + RS parity chunks
 }

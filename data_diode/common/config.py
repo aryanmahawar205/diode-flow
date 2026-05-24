@@ -34,7 +34,7 @@ PROTOCOL_VERSION = "1.0.0"
 # - Metadata: ~100 bytes
 # = 1322 bytes theoretical max
 # Use 1200 for safety margin
-DEFAULT_CHUNK_SIZE = 1200
+DEFAULT_CHUNK_SIZE = 512
 
 # Minimum chunk size (avoid tiny packets)
 MIN_CHUNK_SIZE = 64
@@ -94,88 +94,52 @@ CRITICALITY_LEVELS = ["standard", "critical", "classified"]
 PROFILES: dict[tuple[str, str], TransferProfile] = {
     # Small files (< 10 MB)
     ("small", "standard"):    TransferProfile(
-        num_passes=1,
-        overhead_ratio=0.80,
-        rs_n=255,
-        rs_k=220,
-        interleave_depth=2,
-        header_redundancy=5,
-        window_size_bytes=256 * 1024,
+        num_passes=1, overhead_ratio=0.25, rs_n=16, rs_k=14,
+        interleave_depth=2, header_redundancy=3,
+        window_size_bytes=16 * 1024 * 1024,
     ),
     ("small", "critical"):    TransferProfile(
-        num_passes=1,
-        overhead_ratio=1.00,
-        rs_n=255,
-        rs_k=200,
-        interleave_depth=3,
-        header_redundancy=7,
-        window_size_bytes=256 * 1024,
+        num_passes=2, overhead_ratio=0.25, rs_n=16, rs_k=12,
+        interleave_depth=3, header_redundancy=5,
+        window_size_bytes=16 * 1024 * 1024,
     ),
     ("small", "classified"):  TransferProfile(
-        num_passes=2,
-        overhead_ratio=1.20,
-        rs_n=255,
-        rs_k=180,
-        interleave_depth=4,
-        header_redundancy=10,
-        window_size_bytes=256 * 1024,
+        num_passes=2, overhead_ratio=0.30, rs_n=32, rs_k=24,
+        interleave_depth=4, header_redundancy=5,
+        window_size_bytes=16 * 1024 * 1024,
     ),
 
-    # Medium files (10 MB - 1 GB)
+    # Medium files (10 MB – 1 GB)
     ("medium", "standard"):   TransferProfile(
-        num_passes=2,
-        overhead_ratio=0.15,
-        rs_n=32,
-        rs_k=4,
-        interleave_depth=4,
-        header_redundancy=3,
-        window_size_bytes=1024 * 1024,
+        num_passes=1, overhead_ratio=0.20, rs_n=32, rs_k=28,
+        interleave_depth=3, header_redundancy=3,
+        window_size_bytes=64 * 1024 * 1024,
     ),
     ("medium", "critical"):   TransferProfile(
-        num_passes=3,
-        overhead_ratio=0.15,
-        rs_n=32,
-        rs_k=6,
-        interleave_depth=5,
-        header_redundancy=5,
-        window_size_bytes=1024 * 1024,
+        num_passes=2, overhead_ratio=0.20, rs_n=32, rs_k=26,
+        interleave_depth=4, header_redundancy=5,
+        window_size_bytes=64 * 1024 * 1024,
     ),
     ("medium", "classified"): TransferProfile(
-        num_passes=3,
-        overhead_ratio=0.25,
-        rs_n=32,
-        rs_k=8,
-        interleave_depth=6,
-        header_redundancy=7,
-        window_size_bytes=1024 * 1024,
+        num_passes=2, overhead_ratio=0.25, rs_n=32, rs_k=24,
+        interleave_depth=5, header_redundancy=5,
+        window_size_bytes=64 * 1024 * 1024,
     ),
 
     # Large files (> 1 GB)
     ("large", "standard"):    TransferProfile(
-        num_passes=2,
-        overhead_ratio=0.10,
-        rs_n=64,
-        rs_k=6,
-        interleave_depth=6,
-        header_redundancy=3,
+        num_passes=1, overhead_ratio=0.15, rs_n=64, rs_k=60,
+        interleave_depth=4, header_redundancy=3,
         window_size_bytes=128 * 1024 * 1024,
     ),
     ("large", "critical"):    TransferProfile(
-        num_passes=3,
-        overhead_ratio=0.12,
-        rs_n=64,
-        rs_k=8,
-        interleave_depth=8,
-        header_redundancy=5,
+        num_passes=2, overhead_ratio=0.15, rs_n=64, rs_k=58,
+        interleave_depth=6, header_redundancy=5,
         window_size_bytes=128 * 1024 * 1024,
     ),
     ("large", "classified"):  TransferProfile(
-        num_passes=4,
-        overhead_ratio=0.20,
-        rs_n=64,
-        rs_k=8,
-        interleave_depth=10,
-        header_redundancy=7,
+        num_passes=2, overhead_ratio=0.20, rs_n=64, rs_k=56,
+        interleave_depth=8, header_redundancy=5,
         window_size_bytes=128 * 1024 * 1024,
     ),
 }

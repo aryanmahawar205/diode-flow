@@ -123,16 +123,24 @@ def run_receiver(
                     if transfer_id not in active_transfers: continue
                     
                     session = active_transfers[transfer_id]
-                    if not packet_validator.validate_window_id(packet_proto.window_id, session.manifest.total_windows).valid: continue
                     
-                    pooled = PooledPacket(
-                        payload=packet_proto.payload, pass_id=packet_proto.pass_id,
-                        packet_id=packet_proto.packet_id, degree=packet_proto.fountain_degree,
-                        fountain_seed=packet_proto.fountain_seed
+                    # Convert proto to EncodedPacket object for the pool
+                    from data_diode.fountain.interface import EncodedPacket
+                    pkt_obj = EncodedPacket(
+                        packet_id=packet_proto.packet_id,
+                        pass_id=packet_proto.pass_id,
+                        seed=packet_proto.fountain_seed,
+                        degree=packet_proto.fountain_degree,
+                        chunk_ids=list(packet_proto.chunk_ids),
+                        data=packet_proto.payload,
+                        source_chunk_count=packet_proto.source_chunk_count,
+                        transfer_id=transfer_id,
+                        window_id=packet_proto.window_id
                     )
-                    packet_pool.add_packet(transfer_id, packet_proto.window_id, pooled)
-                    session.received_packets += 1
-                    dirty_windows.add((transfer_id, packet_proto.window_id))
+
+                    if packet_pool.add_packet(transfer_id, packet_proto.window_id, pkt_obj):
+                        session.received_packets += 1
+                        dirty_windows.add((transfer_id, packet_proto.window_id))
                 except queue.Empty:
                     break
                 except Exception:
@@ -163,8 +171,7 @@ def run_receiver(
                 window_session = session.windows[window_id]
                 if window_session.is_complete: continue
                 
-                window_packets = packet_pool.get_packets(transfer_id, window_id)
-                
+                # Determine K_prime
                 if window_id == manifest.total_windows - 1:
                     window_size = manifest.file_size % manifest.window_size_bytes or manifest.window_size_bytes
                 else:
@@ -172,60 +179,79 @@ def run_receiver(
                 
                 W = (window_size + manifest.chunk_size - 1) // manifest.chunk_size
                 num_blocks = (W + manifest.rs_k - 1) // manifest.rs_k
-                K_fountain = num_blocks * manifest.rs_n
+                K_prime = num_blocks * manifest.rs_n
                 
-                min_packets = int(K_fountain * 1.02) # Try slightly earlier
-                last_attempt = getattr(window_session, "last_attempt_count", 0)
-                last_attempt_time = getattr(window_session, "last_attempt_time", 0)
-                
-                # Adaptive trigger interval: 2% of K, but between 20 and 500 packets
-                trigger_interval = max(20, min(500, K_fountain // 50))
-                
-                # Try decode if:
-                # 1. We hit a new adaptive packet count threshold
-                # 2. It's been more than 5 seconds since the last attempt and we have enough packets
-                should_trigger = False
-                if len(window_packets) >= min_packets:
-                    if len(window_packets) >= last_attempt + trigger_interval:
-                        should_trigger = True
-                    elif time.time() - last_attempt_time > 5.0:
-                        should_trigger = True
+                if not packet_pool.is_ready_to_decode(transfer_id, window_id, K_prime):
+                    continue
 
-                if should_trigger:
-                    window_session.last_attempt_count = len(window_packets)
-                    window_session.last_attempt_time = time.time()
-                    logger.info(f"Decoding window {window_id} ({len(window_packets)} packets, K={K_fountain})")
-                    
-                    decoder = FountainDecoderWrapper("lt")
-                    decode_result = decoder.decode_window(window_packets, K=K_fountain, chunk_size=manifest.chunk_size)
-                    
-                    if sum(1 for c in decode_result.chunks if c is not None) > 0:
-                        rs_decoder = ReedSolomonDecoder(RSConfig(n=manifest.rs_n, k=manifest.rs_k))
-                        try:
-                            chunks = rs_decoder.decode(decode_result.chunks)
-                            reassembler = WindowReassembler(window_id=window_id, chunk_size=manifest.chunk_size, expected_bytes=window_size)
-                            for i in range(W):
-                                chunk_data = chunks[i]
-                                if verify_chunk_merkle(chunk_data, i + (window_id * (manifest.window_size_bytes // manifest.chunk_size)), manifest.merkle_root):
-                                    reassembler.add_chunk(i, chunk_data)
-                            
-                            if reassembler.is_complete():
-                                window_session.data = reassembler.get_window_bytes()
-                                window_session.is_complete = True
-                                logger.info(f"Window {window_id} complete")
-                        except Exception as e:
-                            logger.warning(f"RS failed: {e}")
+                logger.info(f"Decoding window {window_id} ({packet_pool.get_packet_count(transfer_id, window_id)} packets, K'={K_prime})")
                 
+                decoder = FountainDecoderWrapper("lt")
+                unified_pool = packet_pool.get_unified_pool(transfer_id, window_id)
+                decode_result = decoder.decode_window(unified_pool, K_prime=K_prime, chunk_size=manifest.chunk_size)
+                
+                if decode_result.success:
+                    rs_decoder = ReedSolomonDecoder(RSConfig(n=manifest.rs_n, k=manifest.rs_k))
+                    try:
+                        chunks = rs_decoder.decode(decode_result.chunks)
+                        reassembler = WindowReassembler(window_id=window_id, chunk_size=manifest.chunk_size, expected_bytes=window_size)
+                        for i in range(W):
+                            reassembler.add_chunk(i, chunks[i])
+                        
+                        if reassembler.is_complete():
+                            window_session.data = reassembler.get_window_bytes()
+                            window_session.is_complete = True
+                            logger.info(f"Window {window_id} complete")
+                    except Exception as e:
+                        logger.warning(f"RS failed for window {window_id}: {e}")
+                
+                # Check if all windows complete
                 if len(session.windows) == manifest.total_windows and all(w.is_complete for w in session.windows.values()):
                     try:
-                        final_file_bytes = b"".join(session.windows[i].data for i in range(manifest.total_windows))
-                        if FileVerifier.verify_file(final_file_bytes, manifest.file_size, manifest.file_sha256)["valid"]:
-                            logger.info(f"SUCCESS! {manifest.file_name}")
-                            storage_writer.store_file(final_file_bytes, manifest, session.received_packets)
+                        final_data = b"".join(session.windows[i].data for i in range(manifest.total_windows))
+                        
+                        # Verify COMPRESSED file hash first
+                        if not FileVerifier.verify_file(final_data, manifest.file_size, manifest.file_sha256)["valid"]:
+                            logger.error(f"Integrity check failed for {manifest.file_name}")
+                            continue
+
+                        # DECOMPRESS (CRITICAL FINAL STEP)
+                        from data_diode.receiver.m24_decompress import decompress_file
+                        
+                        # Temp paths for intermediate steps
+                        temp_reconstructed = os.path.join(storage_dir, f"{manifest.transfer_id}.reconstructed")
+                        temp_decompressed = os.path.join(storage_dir, f"{manifest.transfer_id}.decompressed")
+                        
+                        os.makedirs(storage_dir, exist_ok=True)
+                        
+                        with open(temp_reconstructed, 'wb') as f:
+                            f.write(final_data)
+                        
+                        success = decompress_file(
+                            temp_reconstructed,
+                            temp_decompressed,
+                            manifest.compression_algorithm,
+                            manifest.original_sha256
+                        )
+                        
+                        if success:
+                            with open(temp_decompressed, 'rb') as f:
+                                final_bytes = f.read()
+                            
+                            final_dest = storage_writer.store_file(final_bytes, manifest, session.received_packets)
+                            logger.info(f"SUCCESS! Transfer complete: {os.path.basename(final_dest)}")
                             completed_transfers.add(transfer_id)
-                            del active_transfers[transfer_id]
+                        else:
+                            logger.error(f"Decompression/Verification failed for {manifest.file_name}")
+                        
+                        # Cleanup all temps
+                        for p in [temp_reconstructed, temp_decompressed]:
+                            if os.path.exists(p): os.remove(p)
+                        
+                        del active_transfers[transfer_id]
+
                     except Exception as e:
-                        logger.error(f"Reassembly error: {e}")
+                        logger.error(f"Reassembly/Decompression error: {e}")
                         completed_transfers.add(transfer_id)
                         del active_transfers[transfer_id]
 

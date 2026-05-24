@@ -81,21 +81,23 @@ class TestMerkleTreeConstruction:
     def test_build_tree_single_chunk(self):
         """Build tree from single chunk."""
         chunks = [b"data1"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
+        tree = tree_data[0]
 
         # Single chunk: 1 leaf (root)
         assert len(tree) >= 1
-        root = get_merkle_root(tree)
+        root = get_merkle_root(tree_data)
         assert root == _sha256_hash(b"data1")
 
     def test_build_tree_two_chunks(self):
         """Build tree from two chunks."""
         chunks = [b"data1", b"data2"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
+        tree = tree_data[0]
 
         # 2 leaves + 1 root = 3 nodes
         assert len(tree) >= 3
-        root = get_merkle_root(tree)
+        root = get_merkle_root(tree_data)
         expected = _merkle_parent_hash(
             _sha256_hash(b"data1"),
             _sha256_hash(b"data2"),
@@ -105,7 +107,8 @@ class TestMerkleTreeConstruction:
     def test_build_tree_three_chunks(self):
         """Build tree from 3 chunks (pads to 4)."""
         chunks = [b"a", b"b", b"c"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
+        tree = tree_data[0]
 
         # 3 leaves, padded to 4
         # Leaves: a, b, c, c (duplicated)
@@ -118,7 +121,8 @@ class TestMerkleTreeConstruction:
     def test_build_tree_power_of_2_chunks(self):
         """Build tree from power-of-2 chunks (no padding)."""
         chunks = [b"a", b"b", b"c", b"d"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
+        tree = tree_data[0]
 
         # 4 leaves (no padding needed)
         # Level 1: 2 nodes
@@ -134,15 +138,18 @@ class TestMerkleTreeConstruction:
     def test_build_tree_many_chunks(self):
         """Build tree from many chunks."""
         chunks = [str(i).encode() for i in range(100)]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
+        tree = tree_data[0]
 
         # 100 chunks, padded to 128
         # Theoretical: at least 100 + 64 + 32 + 16 + 8 + 4 + 2 + 1 = 227 (approx)
         assert len(tree) >= 200
 
     def test_build_tree_returns_tree_dict(self):
-        """Return value is dict[hash -> MerkleTreeNode]."""
-        tree = build_merkle_tree([b"data"])
+        """Return value is tuple with first element as dict[hash -> MerkleTreeNode]."""
+        tree_data = build_merkle_tree([b"data"])
+        assert isinstance(tree_data, tuple)
+        tree = tree_data[0]
         assert isinstance(tree, dict)
         for hash_key, node in tree.items():
             assert isinstance(node, MerkleTreeNode)
@@ -150,7 +157,8 @@ class TestMerkleTreeConstruction:
 
     def test_build_tree_nodes_have_levels(self):
         """All nodes in tree have level attribute."""
-        tree = build_merkle_tree([b"a", b"b"])
+        tree_data = build_merkle_tree([b"a", b"b"])
+        tree = tree_data[0]
         levels = {node.level for node in tree.values()}
         # Should have level 0 (leaves) and higher levels
         assert 0 in levels
@@ -163,8 +171,8 @@ class TestMerkleProof:
     def test_get_proof_single_chunk(self):
         """Proof for single chunk is empty (it's the root)."""
         chunks = [b"data"]
-        tree = build_merkle_tree(chunks)
-        proof = get_merkle_proof(tree, 0, chunks)
+        tree_data = build_merkle_tree(chunks)
+        proof = get_merkle_proof(tree_data, 0, chunks)
 
         # Single chunk is the root, no proof needed
         assert len(proof) == 0
@@ -172,10 +180,10 @@ class TestMerkleProof:
     def test_get_proof_two_chunks(self):
         """Proof for chunk in 2-chunk tree."""
         chunks = [b"a", b"b"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
 
-        proof0 = get_merkle_proof(tree, 0, chunks)
-        proof1 = get_merkle_proof(tree, 1, chunks)
+        proof0 = get_merkle_proof(tree_data, 0, chunks)
+        proof1 = get_merkle_proof(tree_data, 1, chunks)
 
         # Both should have length 1 (the sibling)
         assert len(proof0) == 1
@@ -184,11 +192,11 @@ class TestMerkleProof:
     def test_get_proof_four_chunks(self):
         """Proof for chunk in 4-chunk tree."""
         chunks = [b"a", b"b", b"c", b"d"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
 
         # Chunks 0 and 1 are siblings (same subtree)
-        proof0 = get_merkle_proof(tree, 0, chunks)
-        proof1 = get_merkle_proof(tree, 1, chunks)
+        proof0 = get_merkle_proof(tree_data, 0, chunks)
+        proof1 = get_merkle_proof(tree_data, 1, chunks)
 
         # Both should have length 2 (sibling + subtree root)
         assert len(proof0) == 2
@@ -197,20 +205,20 @@ class TestMerkleProof:
     def test_get_proof_out_of_range_raises_valueerror(self):
         """Chunk index out of range raises ValueError."""
         chunks = [b"a", b"b"]
-        tree = build_merkle_tree(chunks)
+        tree_data = build_merkle_tree(chunks)
 
         with pytest.raises(ValueError, match="out of range"):
-            get_merkle_proof(tree, 10, chunks)
+            get_merkle_proof(tree_data, 10, chunks)
 
         with pytest.raises(ValueError, match="out of range"):
-            get_merkle_proof(tree, -1, chunks)
+            get_merkle_proof(tree_data, -1, chunks)
 
     def test_verify_proof_single_chunk(self):
         """Verify proof for single chunk."""
         chunks = [b"data"]
-        tree = build_merkle_tree(chunks)
-        root = get_merkle_root(tree)
-        proof = get_merkle_proof(tree, 0, chunks)
+        tree_data = build_merkle_tree(chunks)
+        root = get_merkle_root(tree_data)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         chunk_hash = _sha256_hash(chunks[0])
 
         # Proof should verify against root
@@ -219,30 +227,30 @@ class TestMerkleProof:
     def test_verify_proof_two_chunks(self):
         """Verify proofs for 2-chunk tree."""
         chunks = [b"a", b"b"]
-        tree = build_merkle_tree(chunks)
-        root = get_merkle_root(tree)
+        tree_data = build_merkle_tree(chunks)
+        root = get_merkle_root(tree_data)
 
         # Verify first chunk
-        proof = get_merkle_proof(tree, 0, chunks)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         chunk_hash = _sha256_hash(chunks[0])
         assert verify_merkle_proof(chunk_hash, proof, root)
 
     def test_verify_proof_four_chunks(self):
         """Verify proofs for 4-chunk tree."""
         chunks = [b"a", b"b", b"c", b"d"]
-        tree = build_merkle_tree(chunks)
-        root = get_merkle_root(tree)
+        tree_data = build_merkle_tree(chunks)
+        root = get_merkle_root(tree_data)
 
         # Verify first chunk (leftmost)
-        proof = get_merkle_proof(tree, 0, chunks)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         chunk_hash = _sha256_hash(chunks[0])
         assert verify_merkle_proof(chunk_hash, proof, root)
 
     def test_verify_proof_rejects_wrong_root(self):
         """Verify rejects proof against wrong root."""
         chunks = [b"a", b"b"]
-        tree = build_merkle_tree(chunks)
-        proof = get_merkle_proof(tree, 0, chunks)
+        tree_data = build_merkle_tree(chunks)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         chunk_hash = _sha256_hash(chunks[0])
         wrong_root = _sha256_hash(b"wrong_root")
 
@@ -251,9 +259,9 @@ class TestMerkleProof:
     def test_verify_proof_rejects_corrupted_chunk(self):
         """Verify rejects proof if chunk hash is wrong."""
         chunks = [b"a", b"b"]
-        tree = build_merkle_tree(chunks)
-        root = get_merkle_root(tree)
-        proof = get_merkle_proof(tree, 0, chunks)
+        tree_data = build_merkle_tree(chunks)
+        root = get_merkle_root(tree_data)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         corrupted_hash = _sha256_hash(b"corrupted_data")
 
         assert not verify_merkle_proof(corrupted_hash, proof, root)
@@ -268,38 +276,38 @@ class TestMerkleIntegration:
         chunk_size = 10
         chunks = [data[i:i+chunk_size] for i in range(0, len(data), chunk_size)]
 
-        tree = build_merkle_tree(chunks)
-        root = get_merkle_root(tree)
+        tree_data = build_merkle_tree(chunks)
+        root = get_merkle_root(tree_data)
 
         # Verify first chunk
-        proof = get_merkle_proof(tree, 0, chunks)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         chunk_hash = _sha256_hash(chunks[0])
         assert verify_merkle_proof(chunk_hash, proof, root)
 
     def test_full_workflow_large_chunk_count(self):
         """Build tree from many chunks."""
         chunks = [str(i).encode().ljust(16, b'0') for i in range(100)]
-        tree = build_merkle_tree(chunks)
-        root = get_merkle_root(tree)
+        tree_data = build_merkle_tree(chunks)
+        root = get_merkle_root(tree_data)
 
         # Spot check first chunk
-        proof = get_merkle_proof(tree, 0, chunks)
+        proof = get_merkle_proof(tree_data, 0, chunks)
         chunk_hash = _sha256_hash(chunks[0])
         assert verify_merkle_proof(chunk_hash, proof, root)
 
     def test_tree_deterministic(self):
         """Same chunks always produce same root."""
         chunks = [b"a", b"b", b"c"]
-        tree1 = build_merkle_tree(chunks)
-        tree2 = build_merkle_tree(chunks)
-        root1 = get_merkle_root(tree1)
-        root2 = get_merkle_root(tree2)
+        tree1_data = build_merkle_tree(chunks)
+        tree2_data = build_merkle_tree(chunks)
+        root1 = get_merkle_root(tree1_data)
+        root2 = get_merkle_root(tree2_data)
         assert root1 == root2
 
     def test_different_chunks_different_root(self):
         """Different chunks produce different root."""
-        tree1 = build_merkle_tree([b"a", b"b"])
-        tree2 = build_merkle_tree([b"x", b"y"])
-        root1 = get_merkle_root(tree1)
-        root2 = get_merkle_root(tree2)
+        tree1_data = build_merkle_tree([b"a", b"b"])
+        tree2_data = build_merkle_tree([b"x", b"y"])
+        root1 = get_merkle_root(tree1_data)
+        root2 = get_merkle_root(tree2_data)
         assert root1 != root2

@@ -13,7 +13,8 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from data_diode.common.config import get_profile, DEFAULT_CHUNK_SIZE
+from data_diode.common.config import DEFAULT_CHUNK_SIZE
+from data_diode.sender.m5_profile import get_profile, Profile
 from data_diode.sender.m0_manifest import generate_manifest
 from data_diode.sender.m1_windowing import get_file_window, compute_windows
 from data_diode.sender.m2_chunker import chunk_window
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 import random
 
+from data_diode.sender.m0_compress import compress_file
+
 def run_sender(
     file_path: str,
     target_addr: tuple[str, int],
@@ -40,130 +43,98 @@ def run_sender(
     loss_rate: float = 0.0,
 ) -> bool:
     """
-    Run the complete sender pipeline for a file.
-
-    Parameters:
-        file_path: Path to file to transfer.
-        target_addr: (ip, port) of receiver.
-        criticality: "standard" | "critical" | "classified".
-        sender_node_id: Identifier for this sender.
-        shared_secret: 32-byte secret for BLAKE3-MAC.
-        private_key: Ed25519 private key (bytes or object) for manifest signing (optional).
-        loss_rate: Probability (0.0 - 1.0) of dropping each packet to simulate network loss.
-
-    Returns:
-        True if transmission completed successfully.
+    Run the complete sender pipeline with compression and optimized transmission.
     """
     if not os.path.exists(file_path):
         logger.error(f"File not found: {file_path}")
         return False
 
-    file_size = os.path.getsize(file_path)
-    logger.info(f"Starting transfer for {file_path} ({file_size} bytes)")
+    orig_size = os.path.getsize(file_path)
+    logger.info(f"Starting transfer for {file_path} ({orig_size} bytes)")
 
-    # 1. Get profile and generate initial manifest (without signature)
-    profile = get_profile(file_size, criticality)
+    # 1. Compress file (CRITICAL OPTIMIZATION)
+    temp_compressed_path = f"{file_path}.diode_tmp"
+    comp_result = compress_file(file_path, temp_compressed_path)
+    active_file_path = comp_result.compressed_path
+    active_file_size = comp_result.compressed_size
+    
+    logger.info(f"Compression: {comp_result.algorithm} ({comp_result.original_size} -> {comp_result.compressed_size}, ratio={comp_result.compression_ratio:.2f}x)")
+
+    # 2. Get profile and generate manifest
+    profile = get_profile(active_file_size, criticality)
     manifest = generate_manifest(
-        file_path,
+        active_file_path,
         sender_node_id=sender_node_id,
         profile=profile,
         classification_level=criticality
     )
+    
+    # Update manifest with original file info for receiver decompression
+    manifest.file_name = os.path.basename(file_path)
+    manifest.compression_algorithm = comp_result.algorithm
+    manifest.compressed_size = comp_result.compressed_size
+    manifest.original_size = comp_result.original_size
+    manifest.original_sha256 = comp_result.original_sha256
 
-    # 2. Sign manifest if private key provided
+    # 3. Sign manifest if private key provided
     if private_key:
         from data_diode.sender.m9_metadata import import_private_key
-        if isinstance(private_key, bytes):
-            priv_key_obj = import_private_key(private_key)
-        else:
-            priv_key_obj = private_key
-        
-        # Serialize once to sign
+        priv_key_obj = import_private_key(private_key) if isinstance(private_key, bytes) else private_key
         manifest_bytes_to_sign = serialize_manifest(manifest)
         manifest.ed25519_signature = sign_manifest(manifest_bytes_to_sign, priv_key_obj)
 
-    # 3. Setup transmitter
-    tx_config = TransmitterConfig(
-        packets_per_second=2000  # Default rate limit
-    )
-    transmitter = Transmitter(tx_config)
+    # 4. Setup transmitter
+    transmitter = Transmitter(TransmitterConfig(packets_per_second=2000))
 
-    # Metrics
-    total_packets_attempted = 0
-    total_packets_dropped = 0
-
-    # 4. Phase 0: Send Manifest
+    # 5. Phase 0: Send Manifest
     logger.info(f"Sending manifest ({profile.header_redundancy} copies)")
     serialized_manifest = serialize_manifest(manifest)
-    for _ in range(profile.header_redundancy):
-        total_packets_attempted += 1
-        if random.random() >= loss_rate:
-            transmitter.send_packet(target_addr, serialized_manifest)
-        else:
-            total_packets_dropped += 1
-        time.sleep(0.01)
+    manifest_batch = [serialized_manifest] * profile.header_redundancy
+    transmitter.send_transfer(target_addr, manifest_batch)
 
-    # 5. Phase 1: Send Data Windows
-    windows = compute_windows(file_size, profile.window_size_bytes)
+    # 6. Phase 1: Send Data Windows
+    windows = compute_windows(active_file_size, profile.window_size_bytes)
     
     for window in windows:
         window_id = window.window_id
-        logger.info(f"Processing window {window_id}/{len(windows)} (offset {window.start_byte}, size {window.num_bytes})")
+        logger.info(f"Processing window {window_id}/{len(windows)} (size {window.num_bytes})")
         
         # Read window data
-        window_data = get_file_window(file_path, window)
+        window_data = get_file_window(active_file_path, window)
         
         # Chunk window
-        logger.info(f"Step 2: Chunker — Dividing window into {manifest.chunk_size} byte chunks")
         chunk_result = chunk_window(window_data, manifest.chunk_size)
         
         # Reed-Solomon encoding
-        logger.info(f"Step 4: RS Encoder — Adding {profile.rs_n - profile.rs_k} parity chunks")
         rs_config = RSConfig(n=profile.rs_n, k=profile.rs_k)
         rs_chunks = encode_with_rs(chunk_result.chunks, rs_config)
         
         # Fountain encoding (multi-pass)
-        logger.info(f"Step 6: Fountain Encoder — Generating LT packets (overhead {profile.overhead_ratio*100}%)")
-        encoded_packets = encode_window_multipass(
+        logger.info(f"Step 6: Fountain Encoder — Generating LT packets (passes={profile.passes}, overhead {profile.overhead_ratio*100}%)")
+        all_window_packets = encode_window_multipass(
             manifest.transfer_id,
             window_id,
             rs_chunks,
-            profile.num_passes,
+            profile.passes,
             profile.overhead_ratio
         )
         
-        # Interleave packets
+        # Interleave across passes
         stride = profile.interleave_depth
-        interleaved_packets = []
+        interleaved_payloads = []
         for i in range(stride):
-            interleaved_packets.extend(encoded_packets[i::stride])
+            batch = all_window_packets[i::stride]
+            for pkt in batch:
+                # Simulate loss by just not serializing/sending
+                if random.random() >= loss_rate:
+                    interleaved_payloads.append(serialize_packet(pkt, shared_secret))
 
-        logger.info(f"Sending {len(interleaved_packets)} packets for window {window_id}")
-        
-        for pkt in interleaved_packets:
-            total_packets_attempted += 1
-            # Simulate loss
-            if random.random() < loss_rate:
-                total_packets_dropped += 1
-                continue
+        logger.info(f"Sending {len(interleaved_payloads)} packets for window {window_id}")
+        transmitter.send_transfer(target_addr, interleaved_payloads)
 
-            # Attach security envelope and serialize
-            try:
-                packet_bytes = serialize_packet(pkt, shared_secret)
-                
-                # Send with rate control and pacing
-                while transmitter.send_packet(target_addr, packet_bytes) == -1:
-                    time.sleep(0.0001)
-                
-                # Tiny delay to prevent UDP buffer overflow in loopback
-                time.sleep(0.0005) 
-            except Exception as e:
-                logger.error(f"Error sending packet: {e}")
-                continue
-
-    if total_packets_attempted > 0:
-        actual_loss_percent = (total_packets_dropped / total_packets_attempted) * 100
-        logger.info(f"Transmission METRICS: Total={total_packets_attempted}, Dropped={total_packets_dropped}, Loss={actual_loss_percent:.2f}%")
+    # Cleanup temp file
+    if active_file_path != file_path and os.path.exists(active_file_path):
+        os.remove(active_file_path)
 
     logger.info("Transfer complete")
     transmitter.close()

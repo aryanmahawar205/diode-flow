@@ -54,6 +54,10 @@ class TransferManifest:
     classification_level: str     # "standard" | "critical" | "classified"
     expiration_policy: int        # seconds after which transfer is invalid
     ed25519_signature: bytes      # Ed25519 sig over all above fields (optional for Phase 1)
+    compression_algorithm: str = "none" # "lz4" | "none"
+    compressed_size: int = 0      # bytes after compression
+    original_size: int = 0        # bytes before compression
+    original_sha256: str = ""     # hex SHA-256 of original file
 
 
 # ==============================================================================
