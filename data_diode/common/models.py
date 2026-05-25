@@ -37,8 +37,8 @@ class TransferManifest:
     sender_node_id: str           # configurable sender identifier
     protocol_version: str         # e.g. "1.0.0" — schema versioning
     file_name: str                # original filename
-    file_size: int                # bytes
-    file_sha256: str              # hex SHA-256 of original file
+    file_size: int                # bytes (compressed/in-transit)
+    file_sha256: str              # hex SHA-256 (compressed/in-transit)
     chunk_size: int               # bytes per chunk (fixed, except last padded)
     total_chunks: int             # K — original chunks before RS
     rs_n: int                     # Reed-Solomon n parameter (data + parity)
@@ -240,11 +240,7 @@ class TransferDecodeSession:
 
 @dataclass
 class LossScenario:
-    """
-    Configurable packet loss scenario for testing robustness.
-
-    Used by tests/utils/loss_simulator.py to inject failures.
-    """
+    """Configurable packet loss scenario for testing robustness."""
     name: str                     # e.g., "10% random loss"
     random_loss_rate: float = 0.0  # drop each packet with this probability
     burst_loss_start_frac: float = 0.0  # where burst starts (0.0 - 1.0)
@@ -252,3 +248,22 @@ class LossScenario:
     corruption_rate: float = 0.0   # flip bits in this fraction of packets
     duplicate_rate: float = 0.0    # duplicate this fraction of packets
     reorder_window: int = 0        # sliding window size for random reordering
+
+
+@dataclass
+class TransferProgress:
+    """Real-time monitoring of a transfer."""
+    transfer_id      : str
+    file_name        : str
+    total_bytes      : int
+    bytes_recovered  : int
+    windows_total    : int
+    windows_complete : int
+    packets_received : int
+    status           : str      # "receiving" | "complete" | "failed"
+    error            : str = ""
+
+    @property
+    def percentage(self) -> float:
+        if self.total_bytes == 0: return 0.0
+        return (self.bytes_recovered / self.total_bytes) * 100

@@ -1,8 +1,5 @@
 """
-receiver/pipeline.py — Main Receiver Pipeline
-
-Wires all receiver modules into one callable.
-Handles the end-to-end flow: UDP receive -> validation -> pooling -> decoding -> RS -> reassembly -> verification -> storage.
+receiver/pipeline.py — Streaming Receiver Pipeline
 """
 
 from __future__ import annotations
@@ -10,253 +7,227 @@ from __future__ import annotations
 import logging
 import time
 import os
-import multiprocessing
-import queue
-from typing import Dict, Optional, Set
+import shutil
 from pathlib import Path
+from typing import Dict, Optional, Set
 
-from data_diode.common.models import TransferManifest, TransferDecodeSession, WindowDecodeSession
+from data_diode.common.models import TransferManifest
 from data_diode.sender.m10_serializer import deserialize_manifest, deserialize_packet, MANIFEST_VERSION
-from data_diode.receiver.m12_receiver import Receiver, ReceiverConfig
+from data_diode.receiver.m12_receiver import Receiver
 from data_diode.receiver.m13_validator import PacketValidator, ManifestValidator
-from data_diode.receiver.m15_pooler import PacketPool, PooledPacket
+from data_diode.receiver.m15_pooler import PacketPool
 from data_diode.receiver.m16_fountain_decoder import FountainDecoderWrapper
-from data_diode.sender.m4_rs_encoder import RSConfig
 from data_diode.receiver.m17_rs_decoder import ReedSolomonDecoder
-from data_diode.receiver.m18_merkle_verifier import verify_chunk_merkle
-from data_diode.receiver.m19_window_reassembler import WindowReassembler
-from data_diode.receiver.m20_file_reassembler import FileReassembler
+from data_diode.receiver.m18_merkle_verifier import MerkleVerifier
 from data_diode.receiver.m21_verifier import FileVerifier
-from data_diode.receiver.m23_storage import StorageWriter
+from data_diode.receiver.m24_decompress import decompress_file
 
 logger = logging.getLogger(__name__)
-
-
-def _listener_process(bind_addr: str, bind_port: int, config: ReceiverConfig, packet_queue: multiprocessing.Queue, quit_event: multiprocessing.Event):
-    """
-    Dedicated process for high-speed UDP reception.
-    Dumps raw payloads into the queue as fast as possible.
-    """
-    receiver = Receiver(bind_addr, bind_port, config)
-    receiver._bind_socket()
-    
-    logger.info("Listener process started")
-    try:
-        while not quit_event.is_set():
-            # Batch receive to reduce queue overhead
-            batch = receiver.receive_batch(max_packets=100)
-            if not batch:
-                time.sleep(0.001) # Very short sleep
-                continue
-            
-            for entry in batch:
-                try:
-                    packet_queue.put(entry.payload, block=False)
-                except queue.Full:
-                    # This should only happen if the decoder is catastrophically slow
-                    pass
-    finally:
-        receiver.close()
-        logger.info("Listener process exiting")
 
 
 def run_receiver(
     bind_addr: str = "0.0.0.0",
     bind_port: int = 20000,
     storage_dir: str = "demo_output/storage",
-    shared_secret: bytes = b"S" * 32,
-    public_key: Optional[bytes] = None,
     quit_event: Optional[any] = None,
 ) -> None:
     """
-    Run the complete receiver pipeline with multi-process isolation.
+    Run the streaming receiver pipeline.
+    Processes windows one-by-one and flushes them to disk to save RAM.
     """
-    logger.info(f"Starting multi-process receiver on {bind_addr}:{bind_port}")
+    logger.info(f"Starting streaming receiver on {bind_addr}:{bind_port}")
     
-    # Internal quit event if none provided
-    if quit_event is None:
-        quit_event = multiprocessing.Event()
-    
-    # Queue for inter-process communication
-    # 100k packets buffer in RAM
-    packet_queue = multiprocessing.Queue(maxsize=100000)
-    
-    config = ReceiverConfig(buffer_slots=100000)
-    
-    # Start the listener process
-    listener = multiprocessing.Process(
-        target=_listener_process,
-        args=(bind_addr, bind_port, config, packet_queue, quit_event),
-        daemon=True
-    )
-    listener.start()
-    
+    receiver = Receiver(bind_addr, bind_port)
     packet_validator = PacketValidator()
+    manifest_validator = ManifestValidator()
     packet_pool = PacketPool()
-    storage_writer = StorageWriter(storage_dir=storage_dir)
+    fountain_decoder = FountainDecoderWrapper("lt")
+    merkle_verifier = MerkleVerifier()
     
-    active_transfers: Dict[str, TransferDecodeSession] = {}
-    completed_transfers: Set[str] = set()
+    # State for current transfer (Phase 2 handles one transfer at a time)
+    manifest: Optional[TransferManifest] = None
+    windows_done: Set[int] = set()
+    window_roots: Dict[int, str] = {}
+    temp_dir = Path(storage_dir) / "tmp_reassembly"
+    
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+    temp_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        last_periodic_check = time.time()
-        
-        while not quit_event.is_set():
-            # 1. Drain the queue into pools
-            dirty_windows = set()
+        last_tick = time.time()
+        pkt_count = 0
+        added_count = 0
+        while not (quit_event and quit_event.is_set()):
+            raw = receiver.receive_nonblocking()
+            if raw is None:
+                # Periodic maintenance
+                now = time.time()
+                if now - last_tick > 1.0:
+                    logger.debug(f"Receiver idle, got {pkt_count} raw, {added_count} added")
+                    last_tick = now
+                if manifest:
+                    packet_pool.cleanup_old_transfers()
+                    # Check for timed-out windows
+                    for wid in range(manifest.total_windows):
+                        if wid not in windows_done:
+                            W = _get_chunks_in_window(manifest, wid)
+                            num_blocks = (W + manifest.rs_k - 1) // manifest.rs_k
+                            K_prime = num_blocks * manifest.rs_n
+                            if packet_pool.is_ready_to_decode(manifest.transfer_id, wid, K_prime):
+                                logger.info(f"Triggering timeout decode for window {wid}")
+                                _process_window(wid, manifest, packet_pool, fountain_decoder, 
+                                               windows_done, window_roots, temp_dir)
+                time.sleep(0.001)
+                continue
             
-            processed_in_batch = 0
-            while processed_in_batch < 2000: # Process in chunks
+            # 1. Handle Manifest
+            if raw.payload[0] == MANIFEST_VERSION:
                 try:
-                    payload = packet_queue.get_nowait()
-                    processed_in_batch += 1
-                    
-                    if payload[0] == MANIFEST_VERSION:
-                        manifest = deserialize_manifest(payload)
-                        if manifest.transfer_id not in completed_transfers and manifest.transfer_id not in active_transfers:
-                            logger.info(f"Received manifest: {manifest.file_name}")
-                            active_transfers[manifest.transfer_id] = TransferDecodeSession(transfer_id=manifest.transfer_id, manifest=manifest)
-                        continue
-
-                    packet_proto = deserialize_packet(payload, shared_secret)
-                    transfer_id = packet_proto.transfer_id
-                    if transfer_id not in active_transfers: continue
-                    
-                    session = active_transfers[transfer_id]
-                    
-                    # Convert proto to EncodedPacket object for the pool
-                    from data_diode.fountain.interface import EncodedPacket
-                    pkt_obj = EncodedPacket(
-                        packet_id=packet_proto.packet_id,
-                        pass_id=packet_proto.pass_id,
-                        seed=packet_proto.fountain_seed,
-                        degree=packet_proto.fountain_degree,
-                        chunk_ids=list(packet_proto.chunk_ids),
-                        data=packet_proto.payload,
-                        source_chunk_count=packet_proto.source_chunk_count,
-                        transfer_id=transfer_id,
-                        window_id=packet_proto.window_id
-                    )
-
-                    if packet_pool.add_packet(transfer_id, packet_proto.window_id, pkt_obj):
-                        session.received_packets += 1
-                        dirty_windows.add((transfer_id, packet_proto.window_id))
-                except queue.Empty:
-                    break
-                except Exception:
-                    continue
-
-            # Periodic check for all active windows (every 2 seconds)
-            # This ensures that even if no new packets arrived, we still try to decode
-            # if we have enough packets but didn't hit a trigger_interval.
-            if time.time() - last_periodic_check > 2.0:
-                for tid, session in active_transfers.items():
-                    for wid in range(session.manifest.total_windows):
-                        dirty_windows.add((tid, wid))
-                last_periodic_check = time.time()
-
-            if processed_in_batch == 0 and not dirty_windows:
-                time.sleep(0.01)
+                    new_manifest = deserialize_manifest(raw.payload)
+                    if manifest is None or new_manifest.transfer_id != manifest.transfer_id:
+                        # Validate new manifest
+                        if not manifest_validator.validate_manifest_hard_limits(new_manifest).valid:
+                            continue
+                        logger.info(f"New Transfer: {new_manifest.file_name} ({new_manifest.file_size} bytes)")
+                        manifest = new_manifest
+                        windows_done = set()
+                        window_roots = {}
+                        added_count = 0
+                except Exception as e:
+                    logger.debug(f"Failed to deserialize manifest: {e}")
                 continue
 
-            # 2. Process dirty windows
-            for transfer_id, window_id in dirty_windows:
-                session = active_transfers.get(transfer_id)
-                if not session: continue
-                manifest = session.manifest
+            # 2. Handle Packets
+            if manifest is None:
+                continue
+
+            pkt_count += 1
+            packet = deserialize_packet(raw.payload)
+            if packet is None:
+                continue
+            
+            # Validate packet
+            if not packet_validator.validate_packet(packet, manifest).valid:
+                continue
+            
+            window_id = getattr(packet, 'window_id', 0)
+            if window_id in windows_done:
+                continue
                 
-                if window_id not in session.windows:
-                    session.windows[window_id] = WindowDecodeSession(transfer_id=transfer_id, window_id=window_id)
-                
-                window_session = session.windows[window_id]
-                if window_session.is_complete: continue
-                
-                # Determine K_prime
-                if window_id == manifest.total_windows - 1:
-                    window_size = manifest.file_size % manifest.window_size_bytes or manifest.window_size_bytes
-                else:
-                    window_size = manifest.window_size_bytes
-                
-                W = (window_size + manifest.chunk_size - 1) // manifest.chunk_size
+            # Add to pool
+            if packet_pool.add_packet(manifest.transfer_id, window_id, packet):
+                added_count += 1
+                # Readiness trigger
+                W = _get_chunks_in_window(manifest, window_id)
                 num_blocks = (W + manifest.rs_k - 1) // manifest.rs_k
                 K_prime = num_blocks * manifest.rs_n
                 
-                if not packet_pool.is_ready_to_decode(transfer_id, window_id, K_prime):
-                    continue
+                if packet_pool.is_ready_to_decode(manifest.transfer_id, window_id, K_prime):
+                    logger.info(f"Triggering decode for window {window_id} ({packet_pool.get_packet_count(manifest.transfer_id, window_id)} pkts)")
+                    _process_window(window_id, manifest, packet_pool, fountain_decoder, 
+                                   windows_done, window_roots, temp_dir)
 
-                logger.info(f"Decoding window {window_id} ({packet_pool.get_packet_count(transfer_id, window_id)} packets, K'={K_prime})")
-                
-                decoder = FountainDecoderWrapper("lt")
-                unified_pool = packet_pool.get_unified_pool(transfer_id, window_id)
-                decode_result = decoder.decode_window(unified_pool, K_prime=K_prime, chunk_size=manifest.chunk_size)
-                
-                if decode_result.success:
-                    rs_decoder = ReedSolomonDecoder(RSConfig(n=manifest.rs_n, k=manifest.rs_k))
-                    try:
-                        chunks = rs_decoder.decode(decode_result.chunks)
-                        reassembler = WindowReassembler(window_id=window_id, chunk_size=manifest.chunk_size, expected_bytes=window_size)
-                        for i in range(W):
-                            reassembler.add_chunk(i, chunks[i])
-                        
-                        if reassembler.is_complete():
-                            window_session.data = reassembler.get_window_bytes()
-                            window_session.is_complete = True
-                            logger.info(f"Window {window_id} complete")
-                    except Exception as e:
-                        logger.warning(f"RS failed for window {window_id}: {e}")
-                
-                # Check if all windows complete
-                if len(session.windows) == manifest.total_windows and all(w.is_complete for w in session.windows.values()):
-                    try:
-                        final_data = b"".join(session.windows[i].data for i in range(manifest.total_windows))
-                        
-                        # Verify COMPRESSED file hash first
-                        if not FileVerifier.verify_file(final_data, manifest.file_size, manifest.file_sha256)["valid"]:
-                            logger.error(f"Integrity check failed for {manifest.file_name}")
-                            continue
-
-                        # DECOMPRESS (CRITICAL FINAL STEP)
-                        from data_diode.receiver.m24_decompress import decompress_file
-                        
-                        # Temp paths for intermediate steps
-                        temp_reconstructed = os.path.join(storage_dir, f"{manifest.transfer_id}.reconstructed")
-                        temp_decompressed = os.path.join(storage_dir, f"{manifest.transfer_id}.decompressed")
-                        
-                        os.makedirs(storage_dir, exist_ok=True)
-                        
-                        with open(temp_reconstructed, 'wb') as f:
-                            f.write(final_data)
-                        
-                        success = decompress_file(
-                            temp_reconstructed,
-                            temp_decompressed,
-                            manifest.compression_algorithm,
-                            manifest.original_sha256
-                        )
-                        
-                        if success:
-                            with open(temp_decompressed, 'rb') as f:
-                                final_bytes = f.read()
-                            
-                            final_dest = storage_writer.store_file(final_bytes, manifest, session.received_packets)
-                            logger.info(f"SUCCESS! Transfer complete: {os.path.basename(final_dest)}")
-                            completed_transfers.add(transfer_id)
-                        else:
-                            logger.error(f"Decompression/Verification failed for {manifest.file_name}")
-                        
-                        # Cleanup all temps
-                        for p in [temp_reconstructed, temp_decompressed]:
-                            if os.path.exists(p): os.remove(p)
-                        
-                        del active_transfers[transfer_id]
-
-                    except Exception as e:
-                        logger.error(f"Reassembly/Decompression error: {e}")
-                        completed_transfers.add(transfer_id)
-                        del active_transfers[transfer_id]
+            # 3. Check for Completion
+            if manifest and len(windows_done) == manifest.total_windows:
+                _finalize_transfer(manifest, windows_done, window_roots, temp_dir, storage_dir)
+                manifest = None # Reset for next transfer
 
     finally:
-        quit_event.set()
-        listener.join(timeout=1)
-        if listener.is_alive():
-            listener.terminate()
+        receiver.close()
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+
+
+def _get_chunks_in_window(manifest: TransferManifest, window_id: int) -> int:
+    """Calculate number of original chunks in a given window."""
+    if window_id < manifest.total_windows - 1:
+        window_size = manifest.window_size_bytes
+    else:
+        window_size = manifest.file_size % manifest.window_size_bytes or manifest.window_size_bytes
+    return (window_size + manifest.chunk_size - 1) // manifest.chunk_size
+
+
+def _process_window(window_id, manifest, packet_pool, fountain_decoder, windows_done, window_roots, temp_dir):
+    """Decode, verify, and flush one window to disk."""
+    W = _get_chunks_in_window(manifest, window_id)
+    num_blocks = (W + manifest.rs_k - 1) // manifest.rs_k
+    K_prime = num_blocks * manifest.rs_n
+    
+    pool = packet_pool.get_unified_pool(manifest.transfer_id, window_id)
+    decode_result = fountain_decoder.decode_window(pool, K_prime, manifest.chunk_size)
+    
+    # RS Recovery
+    from data_diode.sender.m4_rs_encoder import RSConfig
+    from data_diode.receiver.m17_rs_decoder import decode_with_rs
+    rs_config = RSConfig(n=manifest.rs_n, k=manifest.rs_k)
+    
+    try:
+        recovered_chunks = decode_with_rs(decode_result.chunks, rs_config)
+        # recovered_chunks contains K_original chunks
+        
+        # Strip trailing chunks if the block padding added extra
+        recovered_chunks = recovered_chunks[:W]
+        
+        # Flush to disk
+        window_file = temp_dir / f"window_{window_id}.part"
+        with open(window_file, 'wb') as f:
+            for i, chunk in enumerate(recovered_chunks):
+                # Handle last window last chunk padding
+                if window_id == manifest.total_windows - 1 and i == len(recovered_chunks) - 1:
+                    last_chunk_size = manifest.file_size % manifest.chunk_size or manifest.chunk_size
+                    f.write(chunk[:last_chunk_size])
+                else:
+                    f.write(chunk)
+        
+        # Compute window root for global Merkle check
+        from data_diode.sender.m3_merkle import build_merkle_tree, get_merkle_root
+        tree_data = build_merkle_tree(recovered_chunks)
+        window_roots[window_id] = get_merkle_root(tree_data)
+        
+        windows_done.add(window_id)
+        packet_pool.clear_window(manifest.transfer_id, window_id)
+        logger.info(f"Window {window_id} recovered and flushed")
+        
+    except Exception as e:
+        logger.error(f"Failed to recover window {window_id}: {e}")
+
+
+def _finalize_transfer(manifest, windows_done, window_roots, temp_dir, storage_dir):
+    """Assemble windows, verify, and decompress."""
+    logger.info("All windows received. Finalizing...")
+    
+    reconstructed_path = Path(storage_dir) / f"{manifest.transfer_id}.tmp"
+    final_path = Path(storage_dir) / manifest.file_name
+    
+    # 1. Reassemble windows
+    with open(reconstructed_path, 'wb') as f_out:
+        for i in range(manifest.total_windows):
+            window_file = temp_dir / f"window_{i}.part"
+            with open(window_file, 'rb') as f_in:
+                shutil.copyfileobj(f_in, f_out)
+    
+    # 2. Global Merkle Check
+    all_roots = [window_roots[i] for i in range(manifest.total_windows)]
+    if not FileVerifier.verify_merkle_root(all_roots, manifest.merkle_root):
+        logger.error("Global Merkle root mismatch!")
+        return
+
+    # 3. SHA-256 Check (on compressed file)
+    if not FileVerifier.verify_sha256_streaming(str(reconstructed_path), manifest.file_sha256):
+        logger.error("Compressed SHA-256 mismatch!")
+        return
+
+    # 4. Decompress
+    logger.info("Decompressing...")
+    success = decompress_file(
+        str(reconstructed_path),
+        str(final_path),
+        manifest.compression_algorithm,
+        manifest.original_sha256
+    )
+    
+    if success:
+        logger.info(f"Transfer SUCCESS: {manifest.file_name}")
+    else:
+        logger.error("Decompression or original SHA-256 failed!")

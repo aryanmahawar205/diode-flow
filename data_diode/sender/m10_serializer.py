@@ -2,20 +2,6 @@
 Manual serialization and deserialization layer for transfer data.
 
 This module provides serialize/deserialize functions for manifests and packets.
-Rather than relying on external protobuf compiler, uses Python dataclass
-serialization to JSON/bytes for Phase 1.
-
-Why manual instead of protobuf?
-- No external compiler dependency
-- Phase 1 goal is end-to-end proof-of-concept, not production protobuf
-- Phase 2+ can migrate to actual Protobuf when protoc is available
-- Manual serialization makes debugging easier
-
-Design decisions:
-- Manifest: JSON over bytes (human-readable during debugging)
-- Packets: Custom binary format (compact, efficient)
-- Version field allows future format upgrades
-- CRC32 prevents accidental corruption
 """
 
 from __future__ import annotations
@@ -23,71 +9,82 @@ from __future__ import annotations
 import json
 import logging
 import struct
+import crcmod
 from io import BytesIO
+from typing import Optional
 
 from data_diode.common.models import (
     TransferManifest,
     WindowManifest,
-    EncodedPacketMetadata,
 )
-from data_diode.common.proto.generated import packet_pb2, manifest_pb2
+from data_diode.fountain.interface import EncodedPacket
 
 logger = logging.getLogger(__name__)
 
-MANIFEST_VERSION = 1
-PACKET_VERSION = 1
+MANIFEST_VERSION = 0x51
+PACKET_VERSION = 0x52
+
+# crcmod at module level
+_CRC32C = crcmod.mkCrcFun(0x11EDC6F41, rev=True, initCrc=0xffffffff, xorOut=0xffffffff)
 
 
-def serialize_packet(packet_obj: any, shared_secret: bytes) -> bytes:
-    """
-    Serialize an encoded packet using Protobuf.
-    """
-    from data_diode.sender.m9_metadata import compute_crc32c, compute_blake3_mac
-
-    proto = packet_pb2.EncodedPacket()
-    proto.transfer_id = packet_obj.transfer_id
-    proto.window_id = packet_obj.window_id
-    proto.pass_id = packet_obj.pass_id
-    proto.packet_id = getattr(packet_obj, "packet_id", 0)
-    proto.fountain_degree = packet_obj.degree
-    proto.fountain_seed = packet_obj.seed
-    proto.payload = packet_obj.data
-    proto.chunk_ids.extend(getattr(packet_obj, "chunk_ids", []))
-    proto.source_chunk_count = getattr(packet_obj, "source_chunk_count", 0)
-
-    # Compute CRC32C over payload
-    proto.crc32c = compute_crc32c(proto.payload)
-
-    # Compute BLAKE3-MAC over entire proto (so far)
-    proto_no_mac = proto.SerializeToString()
-    proto.blake3_mac = compute_blake3_mac(proto_no_mac, shared_secret)
-
-    return proto.SerializeToString()
+def serialize_packet(packet: EncodedPacket) -> bytes:
+    """Serialize EncodedPacket to bytes for UDP transmission."""
+    packet_dict = {
+        "packet_id"          : packet.packet_id,
+        "window_id"          : getattr(packet, 'window_id', 0),
+        "pass_id"            : packet.pass_id,
+        "seed"               : packet.seed,
+        "degree"             : packet.degree,
+        "chunk_ids"          : packet.chunk_ids,
+        "source_chunk_count" : packet.source_chunk_count,
+        "data"               : packet.data.hex(),
+    }
+    json_bytes = json.dumps(packet_dict).encode("utf-8")
+    frame = BytesIO()
+    frame.write(struct.pack("B", PACKET_VERSION))
+    frame.write(struct.pack(">I", len(json_bytes)))
+    frame.write(json_bytes)
+    crc = _CRC32C(frame.getvalue())
+    frame.write(struct.pack(">I", crc))
+    return frame.getvalue()
 
 
-def deserialize_packet(data: bytes, shared_secret: Optional[bytes] = None) -> any:
-    """
-    Deserialize an encoded packet using Protobuf.
-    """
-    from data_diode.sender.m9_metadata import compute_blake3_mac
-    import hmac
-
-    proto = packet_pb2.EncodedPacket()
-    proto.ParseFromString(data)
-
-    if shared_secret:
-        # Verify MAC
-        mac_to_verify = proto.blake3_mac
-        proto.ClearField("blake3_mac")
-        proto_no_mac = proto.SerializeToString()
-        expected_mac = compute_blake3_mac(proto_no_mac, shared_secret)
-        
-        if not hmac.compare_digest(mac_to_verify, expected_mac):
-            raise ValueError("BLAKE3-MAC verification failed")
-        
-        proto.blake3_mac = mac_to_verify
-
-    return proto
+def deserialize_packet(data: bytes) -> EncodedPacket | None:
+    """Deserialize packet bytes. Returns None on any error (caller logs)."""
+    try:
+        if len(data) < 9:
+            logger.debug(f"Packet too short: {len(data)}")
+            return None
+        f       = BytesIO(data)
+        version = struct.unpack("B", f.read(1))[0]
+        if version != PACKET_VERSION:
+            logger.debug(f"Version mismatch: {version} != {PACKET_VERSION}")
+            return None
+        length     = struct.unpack(">I", f.read(4))[0]
+        json_bytes = f.read(length)
+        if len(json_bytes) != length:
+            logger.debug(f"JSON length mismatch: {len(json_bytes)} != {length}")
+            return None
+        crc_exp    = struct.unpack(">I", data[-4:])[0]
+        crc_act    = _CRC32C(data[:-4])
+        if crc_act != crc_exp:
+            logger.debug(f"CRC mismatch: {crc_act:08x} != {crc_exp:08x}")
+            return None
+        d = json.loads(json_bytes.decode("utf-8"))
+        p = EncodedPacket(
+            packet_id          = d["packet_id"],
+            pass_id            = d["pass_id"],
+            seed               = d["seed"],
+            degree             = d["degree"],
+            chunk_ids          = d["chunk_ids"],
+            data               = bytes.fromhex(d["data"]),
+            source_chunk_count = d["source_chunk_count"],
+        )
+        setattr(p, 'window_id', d.get("window_id", 0))
+        return p
+    except Exception:
+        return None
 
 
 def serialize_manifest(manifest: TransferManifest) -> bytes:
@@ -124,8 +121,7 @@ def serialize_manifest(manifest: TransferManifest) -> bytes:
     }
 
     json_bytes = json.dumps(manifest_dict).encode("utf-8")
-    ...
-
+    
     # Build frame
     frame = BytesIO()
     frame.write(struct.pack("B", MANIFEST_VERSION))
@@ -133,10 +129,8 @@ def serialize_manifest(manifest: TransferManifest) -> bytes:
     frame.write(json_bytes)
 
     # CRC32C
-    import crcmod
-    crc_func = crcmod.mkCrcFun(0x11EDC6F41, initCrc=0, xorOut=0xffffffff)
     frame_data = frame.getvalue()
-    crc = crc_func(frame_data)
+    crc = _CRC32C(frame_data)
     frame.write(struct.pack(">I", crc))
 
     return frame.getvalue()
@@ -145,15 +139,6 @@ def serialize_manifest(manifest: TransferManifest) -> bytes:
 def deserialize_manifest(data: bytes) -> TransferManifest:
     """
     Deserialize a TransferManifest from bytes.
-
-    Parameters:
-        data: Serialized manifest bytes.
-
-    Returns:
-        TransferManifest.
-
-    Raises:
-        ValueError: if format invalid or CRC fails.
     """
     # Verify minimum length
     if len(data) < 10:  # 1 + 4 + at least 1 + 4
@@ -169,11 +154,8 @@ def deserialize_manifest(data: bytes) -> TransferManifest:
     json_bytes = f.read(length)
 
     # Verify CRC
-    import crcmod
-    crc_func = crcmod.mkCrcFun(0x11EDC6F41, initCrc=0, xorOut=0xffffffff)
-    frame_data = data[:-4]
     crc_expected = struct.unpack(">I", data[-4:])[0]
-    crc_actual = crc_func(frame_data)
+    crc_actual = _CRC32C(data[:-4])
 
     if crc_actual != crc_expected:
         raise ValueError(
@@ -232,10 +214,8 @@ def serialize_window_manifest(window: WindowManifest) -> bytes:
     frame.write(json_bytes)
 
     # CRC32C
-    import crcmod
-    crc_func = crcmod.mkCrcFun(0x11EDC6F41, initCrc=0, xorOut=0xffffffff)
     frame_data = frame.getvalue()
-    crc = crc_func(frame_data)
+    crc = _CRC32C(frame_data)
     frame.write(struct.pack(">I", crc))
 
     return frame.getvalue()
@@ -255,11 +235,8 @@ def deserialize_window_manifest(data: bytes) -> WindowManifest:
     json_bytes = f.read(length)
 
     # Verify CRC
-    import crcmod
-    crc_func = crcmod.mkCrcFun(0x11EDC6F41, initCrc=0, xorOut=0xffffffff)
-    frame_data = data[:-4]
     crc_expected = struct.unpack(">I", data[-4:])[0]
-    crc_actual = crc_func(frame_data)
+    crc_actual = _CRC32C(data[:-4])
 
     if crc_actual != crc_expected:
         raise ValueError(

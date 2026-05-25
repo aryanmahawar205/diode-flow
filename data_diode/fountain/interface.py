@@ -30,26 +30,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EncodedPacket:
-    """One fountain-encoded packet."""
-    packet_id: int          # unique within pass — for deduplication
-    pass_id: int            # which transmission pass (0, 1)
-    seed: int               # PRNG seed for this pass
-    degree: int             # number of source chunks XOR'd
-    chunk_ids: list[int]    # WHICH chunks were XOR'd — decoder reads directly
-    data: bytes             # XOR'd payload
-    source_chunk_count: int # K' = K + RS parity chunks
-    transfer_id: str = ""   # routing metadata
-    window_id: int = 0      # routing metadata
+    """One fountain-encoded packet produced by encoder, consumed by decoder."""
+    packet_id          : int        # unique within pass — for deduplication in pooler
+    pass_id            : int        # which transmission pass (0 or 1)
+    seed               : int        # PRNG seed used for this pass
+    degree             : int        # number of source chunks XOR'd
+    chunk_ids          : list[int]  # WHICH chunks were XOR'd — decoder reads directly
+    data               : bytes      # XOR'd payload bytes
+    source_chunk_count : int        # K' = original K + RS parity chunks
 
 
 @dataclass
 class DecodeResult:
-    """Result of fountain decode."""
-    chunks: list[bytes | None]   # None = not recovered
-    success: bool
-    recovered_count: int
-    missing_ids: list[int]
-    packets_used: int
+    """Result of a fountain decode attempt."""
+    chunks          : list[bytes | None]  # None = chunk not recovered
+    success         : bool
+    recovered_count : int
+    missing_ids     : list[int]           # chunk_ids still missing after decode
+    packets_used    : int
 
 
 class IFountainEncoder(ABC):

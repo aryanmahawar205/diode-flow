@@ -1,28 +1,5 @@
 """
 sender/m1_windowing.py — File Windowing Engine
-
-Role:
-Divides large files into fixed-size windows so each window can be independently
-encoded, transmitted, and decoded with bounded memory usage.
-
-Design:
-- Input: file path, window_size_bytes
-- Output: list[Window] where each Window contains a range [start_byte, end_byte)
-- Each window is self-contained:
-  * Own chunk set
-  * Own Merkle subtree (rolled up to global Merkle tree)
-  * Own RS encoding session
-  * Own fountain encode session(s)
-  * Own decode session on receiver
-  
-- Global Merkle tree is hierarchical: window Merkle roots are children of the
-  global root. This preserves end-to-end integrity while enabling windowed
-  processing.
-
-Why windowing?
-- A 10 GB file at 1200-byte chunks = ~8.7 million chunks
-- A Tanner graph with 8.7M nodes exhausts RAM
-- Windows bound the graph to ~50-100k chunks per window (manageable)
 """
 
 from dataclasses import dataclass
@@ -46,19 +23,40 @@ class Window:
             raise ValueError(f"num_bytes mismatch: {self.num_bytes} != {self.end_byte - self.start_byte}")
 
 
+def get_window_size_for_file(file_size_bytes: int, profile: any) -> int:
+    """
+    Proportional window sizing — avoids windowing overhead for small files.
+
+    < 64MB   → single window (no split at all)
+    64MB–1GB → 64MB windows (profile default for medium)
+    1GB–10GB → 128MB windows (profile default for large)
+    > 10GB   → 256MB windows (only if sufficient RAM)
+    """
+    ONE_MB = 1024 * 1024
+    ONE_GB = 1024 * ONE_MB
+
+    # Handle tiny files
+    if file_size_bytes <= 0:
+        return 1024
+
+    if file_size_bytes < 64 * ONE_MB:
+        return file_size_bytes      # single window, zero split overhead
+
+    if file_size_bytes < ONE_GB:
+        return 64 * ONE_MB
+
+    if file_size_bytes < 10 * ONE_GB:
+        return 128 * ONE_MB
+
+    return 256 * ONE_MB             # > 10GB — requires high-RAM system
+
+
 def compute_windows(file_size_bytes: int, window_size_bytes: int) -> list[Window]:
     """
     Divide a file into windows.
-    
-    Args:
-        file_size_bytes: Total file size
-        window_size_bytes: Bytes per window
-    
-    Returns:
-        list[Window] in order, with is_last set correctly
     """
     if file_size_bytes <= 0:
-        raise ValueError(f"file_size_bytes must be > 0, got {file_size_bytes}")
+        return []
     if window_size_bytes <= 0:
         raise ValueError(f"window_size_bytes must be > 0, got {window_size_bytes}")
     
@@ -89,16 +87,6 @@ def compute_windows(file_size_bytes: int, window_size_bytes: int) -> list[Window
 def get_file_window(file_path: Path, window: Window) -> bytes:
     """
     Read one window from a file.
-    
-    Args:
-        file_path: Path to file
-        window: Window descriptor
-    
-    Returns:
-        bytes of exactly window.num_bytes
-    
-    Raises:
-        IOError: If file cannot be read or is too short
     """
     with open(file_path, "rb") as f:
         f.seek(window.start_byte)

@@ -25,12 +25,32 @@ def log_step(step, description):
 import random
 
 def run_demo():
-    test_files = [
-        ("test_files/sample.txt", "standard"),
-        ("test_files/photo.jpg", "critical"),
-        ("test_files/video.mp4", "classified")
-    ]
+    test_files_dir = Path("test_files")
+    if not test_files_dir.exists():
+        print(f"{Colors.FAIL}Error: test_files directory not found{Colors.ENDC}")
+        return
+
+    # Criticality mapping based on extensions
+    criticality_map = {
+        ".txt": "standard",
+        ".jpg": "critical",
+        ".mp4": "classified",
+        ".bin": "critical",
+        ".pcap": "classified"
+    }
     
+    # Dynamically find all files in test_files/
+    discovered_files = []
+    for f in sorted(test_files_dir.iterdir()):
+        if f.is_file() and not f.name.endswith(".diode_tmp"):
+            ext = f.suffix.lower()
+            criticality = criticality_map.get(ext, "standard")
+            discovered_files.append((str(f), criticality))
+    
+    if not discovered_files:
+        print(f"{Colors.WARNING}No files found in {test_files_dir}{Colors.ENDC}")
+        return
+
     storage_dir = "demo_output/storage"
     if os.path.exists("demo_output"):
         import shutil
@@ -39,12 +59,9 @@ def run_demo():
 
     print(f"{Colors.HEADER}{Colors.BOLD}=== DATA DIODE E2E DEMO ==={Colors.ENDC}")
     print(f"Target Storage: {storage_dir}")
+    print(f"Discovered {len(discovered_files)} files in {test_files_dir}/\n")
     
-    for i, (file_path, criticality) in enumerate(test_files, 1):
-        if not os.path.exists(file_path):
-            print(f"{Colors.WARNING}Skipping {file_path}: File not found{Colors.ENDC}")
-            continue
-
+    for i, (file_path, criticality) in enumerate(discovered_files, 1):
         file_size = os.path.getsize(file_path) / 1024
         
         # Determine a random loss rate for this file to show robustness

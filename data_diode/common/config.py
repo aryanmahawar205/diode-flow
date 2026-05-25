@@ -34,7 +34,7 @@ PROTOCOL_VERSION = "1.0.0"
 # - Metadata: ~100 bytes
 # = 1322 bytes theoretical max
 # Use 1200 for safety margin
-DEFAULT_CHUNK_SIZE = 512
+DEFAULT_CHUNK_SIZE = 1200
 
 # Minimum chunk size (avoid tiny packets)
 MIN_CHUNK_SIZE = 64
@@ -61,8 +61,8 @@ MAX_WINDOW_SIZE_BYTES = 512 * 1024 * 1024     # 512 MB maximum (safety limit)
 
 # Maximum chunks per window (bounded Tanner graph)
 # At 1200-byte chunks: 64MB / 1200 ≈ 55k chunks
-# Limit to 60k to stay safely in memory
-MAX_CHUNKS_PER_WINDOW = 60000
+# Limit to 120k to stay safely in memory
+MAX_CHUNKS_PER_WINDOW = 120000
 
 # Maximum RS parity (prevent massive RS encoding)
 MAX_RS_PARITY = 128

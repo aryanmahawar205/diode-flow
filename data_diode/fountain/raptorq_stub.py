@@ -50,7 +50,7 @@ class RaptorQDecoder(IFountainDecoder):
     def decode(
         self,
         pool: list[EncodedPacket],
-        K: int,
+        K_prime: int,
     ) -> DecodeResult:
         """
         RaptorQ decode (stub).

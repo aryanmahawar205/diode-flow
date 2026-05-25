@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import mimetypes
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Optional
 
 from data_diode.common.models import TransferManifest
 from data_diode.common.config import (
@@ -98,6 +100,8 @@ def _compute_merkle_root_placeholder(total_chunks: int) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+from data_diode.sender.m0_compress import CompressionResult
+
 def generate_manifest(
     file_path: str,
     sender_node_id: str,
@@ -106,18 +110,20 @@ def generate_manifest(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     merkle_root: Optional[str] = None,
     ed25519_signature: bytes = b"",
+    compress_result: Optional[CompressionResult] = None,
 ) -> TransferManifest:
     """
     Generate a transfer manifest for a file.
 
     Parameters:
-        file_path: Path to file to transfer.
+        file_path: Path to file to transfer (the file actually being sent).
         sender_node_id: Sender identifier.
         profile: TransferProfile with encoding parameters.
         classification_level: "standard", "critical", or "classified".
         chunk_size: Bytes per chunk.
         merkle_root: Precomputed Merkle root (optional).
         ed25519_signature: Manifest signature (optional).
+        compress_result: Result of compression phase (optional).
 
     Returns:
         TransferManifest populated with all metadata.
@@ -129,6 +135,17 @@ def generate_manifest(
 
     file_size = os.path.getsize(file_path)
     file_name = os.path.basename(file_path)
+    if compress_result and compress_result.algorithm == "none":
+        # If we copied original to temp, use original name
+        file_name = os.path.basename(compress_result.compressed_path) # wait, no
+
+    # Use original filename even if compressed
+    display_name = file_name
+    
+    # Guess MIME type
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = "application/octet-stream"
 
     # Compute file hash
     file_sha256 = _compute_file_sha256(file_path)
@@ -145,7 +162,7 @@ def generate_manifest(
         transfer_id=str(uuid.uuid4()),
         sender_node_id=sender_node_id,
         protocol_version=PROTOCOL_VERSION,
-        file_name=file_name,
+        file_name=display_name,
         file_size=file_size,
         file_sha256=file_sha256,
         chunk_size=chunk_size,
@@ -158,11 +175,15 @@ def generate_manifest(
         window_size_bytes=profile.window_size_bytes,
         total_windows=total_windows,
         merkle_root=final_merkle_root,
-        mime_type="application/octet-stream",
+        mime_type=mime_type,
         creation_timestamp=time.time(),
         classification_level=classification_level,
         expiration_policy=3600,
         ed25519_signature=ed25519_signature,
+        compression_algorithm=compress_result.algorithm if compress_result else "none",
+        compressed_size=compress_result.compressed_size if compress_result else file_size,
+        original_size=compress_result.original_size if compress_result else file_size,
+        original_sha256=compress_result.original_sha256 if compress_result else file_sha256,
     )
 
     return manifest
