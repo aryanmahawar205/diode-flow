@@ -71,6 +71,9 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
     if not chunks_with_gaps:
         return []
 
+    if config.k <= 0:
+        return list(chunks_with_gaps)
+
     parity_count = config.k
     block_size   = config.data_per_block
     
@@ -111,6 +114,7 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
     codec     = reedsolo.RSCodec(parity_count)
     recovered = list(data_chunks)
     
+    spam_count = 0
     for b in range(n_blocks):
         d_start = b * block_size
         d_end   = min((b + 1) * block_size, D)
@@ -128,7 +132,11 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
             continue
             
         if len(all_erasures) > parity_count:
-            logger.warning(f"Too many erasures in block {b}: {len(all_erasures)} > {parity_count}")
+            spam_count += 1
+            if spam_count <= 5:
+                logger.warning(f"Too many erasures in block {b}: {len(all_erasures)} > {parity_count}")
+            elif spam_count == 6:
+                logger.warning("RS: Further warnings suppressed for this window...")
             continue
             
         # Try to recover

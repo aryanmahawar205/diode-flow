@@ -98,23 +98,19 @@ def run_sender(file_path: str, remote_addr: tuple,
         passes_list = [passes.get(i, []) for i in range(profile.num_passes)]
         interleaved = interleave_multipass(passes_list, profile.interleave_depth)
 
-        # Serialize with security envelope
-        serialized = []
+        # Serialize and transmit immediately (streamed)
         for pkt in interleaved:
             pkt_dict  = attach_security(pkt, manifest.transfer_id,
                                         window.window_id,
                                         chunk_result.padding_length,
                                         chunk_result.chunk_count,
                                         SHARED_KEY)
-            serialized.append(serialize_packet(pkt_dict))
-
-        # Transmit ALL packets for this window
-        for pkt_bytes in serialized:
+            pkt_bytes = serialize_packet(pkt_dict)
             tx.send_raw(remote_addr, pkt_bytes)
 
         # FREE MEMORY — critical for GB scale
         del window_data, chunk_result, chunks_with_parity
-        del encoded_pkts, passes, passes_list, interleaved, serialized
+        del encoded_pkts, passes, passes_list, interleaved
 
         # Progress
         progress.completed_windows += 1
