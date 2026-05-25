@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data_diode.receiver.m17_rs_decoder import ReedSolomonDecoder
-from data_diode.sender.m4_rs_encoder import RSConfig
+from receiver.m17_rs_decoder import ReedSolomonDecoder
+from sender.m4_rs_encoder import RSConfig
 
 
 def test_rs_decoder_recoverable():

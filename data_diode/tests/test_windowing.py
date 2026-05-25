@@ -10,7 +10,7 @@ Tests for sender/m1_windowing.py:
 import pytest
 import tempfile
 from pathlib import Path
-from data_diode.sender.m1_windowing import Window, compute_windows, get_file_window
+from sender.m1_windowing import Window, compute_windows, get_file_window
 
 
 class TestWindow:

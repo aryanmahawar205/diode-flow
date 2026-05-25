@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import collections
 import numpy as np
-from data_diode.fountain.interface import IFountainDecoder, EncodedPacket, DecodeResult
+from fountain.interface import IFountainDecoder, EncodedPacket, DecodeResult
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class LTDecoder(IFountainDecoder):
     """LT decoder implementation."""
 
     def decode(self, packets: list[EncodedPacket], K_prime: int,
-               max_degree: int = 50) -> DecodeResult:
+               max_degree: int = 100) -> DecodeResult:
         """
         Decode source chunks from encoded packet pool.
         """
@@ -41,6 +41,7 @@ class LTDecoder(IFountainDecoder):
 
         # Build graph — read chunk_ids directly from packet
         recovered       = [None] * K_prime
+        # Optimization: Store as numpy arrays directly
         packet_payload  = []
         packet_chunks   = []          # list of set[int]
         chunk_to_packets = [set() for _ in range(K_prime)]
@@ -49,7 +50,7 @@ class LTDecoder(IFountainDecoder):
             valid_ids = [cid for cid in pkt.chunk_ids if 0 <= cid < K_prime]
             if len(valid_ids) != pkt.degree:
                 continue    # malformed packet
-            packet_payload.append(bytearray(pkt.data))
+            packet_payload.append(np.frombuffer(pkt.data, dtype=np.uint8).copy())
             packet_chunks.append(set(valid_ids))
             cur_pi = len(packet_payload) - 1
             for cid in valid_ids:
@@ -68,16 +69,14 @@ class LTDecoder(IFountainDecoder):
                 continue
                 
             # Recovered!
-            recovered[chunk_id] = bytes(packet_payload[pi])
+            # Optimization: payload is already a numpy array
+            chunk_arr = packet_payload[pi]
+            recovered[chunk_id] = chunk_arr.tobytes()
             
             # Peeling
             for other_pi in chunk_to_packets[chunk_id]:
                 if len(packet_chunks[other_pi]) > 1:
-                    # Fix B — numpy XOR in peeling loop
-                    arr_r = np.frombuffer(packet_payload[other_pi], dtype=np.uint8).copy()
-                    arr_k = np.frombuffer(recovered[chunk_id],      dtype=np.uint8)
-                    arr_r ^= arr_k
-                    packet_payload[other_pi] = bytearray(arr_r.tobytes())
+                    packet_payload[other_pi] ^= chunk_arr
                     
                     # Fix C — set.discard() instead of list.remove()
                     packet_chunks[other_pi].discard(chunk_id)

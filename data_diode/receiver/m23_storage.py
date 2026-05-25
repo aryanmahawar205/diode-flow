@@ -22,8 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from data_diode.common.config import STORAGE_DIR, STORAGE_DIR_PERMISSIONS
-from data_diode.common.models import TransferManifest
+from common.config import STORAGE_DIR, STORAGE_DIR_PERMISSIONS
+from common.models import TransferManifest
 
 logger = logging.getLogger(__name__)
 

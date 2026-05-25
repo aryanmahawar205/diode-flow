@@ -14,7 +14,7 @@ Design:
 """
 
 import random
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 from dataclasses import dataclass
 
 
@@ -31,29 +31,24 @@ class LossSimulator:
     """Simulates packet loss and corruption."""
     
     @staticmethod
-    def apply_random_loss(packets: List[bytes], loss_rate: float, seed: Optional[int] = None) -> Tuple[List[Optional[bytes]], List[int]]:
+    def apply_random_loss(
+        packets: List[Optional[bytes]], 
+        loss_rate: float, 
+        seed: Optional[int] = None
+    ) -> Tuple[List[Optional[bytes]], List[int]]:
         """
         Apply uniform random packet loss.
-        
-        Args:
-            packets: List of packet bytes
-            loss_rate: Probability each packet is lost (0-1)
-            seed: Random seed (for reproducibility)
-        
-        Returns:
-            (packets_with_loss, lost_indices) where lost packets are None
         """
         if not (0 <= loss_rate <= 1):
             raise ValueError(f"loss_rate must be 0-1, got {loss_rate}")
         
-        if seed is not None:
-            random.seed(seed)
+        rng = random.Random(seed)
         
         result = []
         lost_indices = []
         
         for i, packet in enumerate(packets):
-            if random.random() < loss_rate:
+            if packet is not None and rng.random() < loss_rate:
                 result.append(None)
                 lost_indices.append(i)
             else:
@@ -62,18 +57,14 @@ class LossSimulator:
         return result, lost_indices
     
     @staticmethod
-    def apply_burst_loss(packets: List[bytes], burst_rate: float, burst_length: int, seed: Optional[int] = None) -> Tuple[List[Optional[bytes]], List[int]]:
+    def apply_burst_loss(
+        packets: List[Optional[bytes]], 
+        burst_rate: float, 
+        burst_length: int, 
+        seed: Optional[int] = None
+    ) -> Tuple[List[Optional[bytes]], List[int]]:
         """
         Apply burst loss (consecutive packets lost at random intervals).
-        
-        Args:
-            packets: List of packet bytes
-            burst_rate: Probability a burst starts at each packet (0-1)
-            burst_length: Number of packets per burst
-            seed: Random seed
-        
-        Returns:
-            (packets_with_loss, lost_indices)
         """
         if not (0 <= burst_rate <= 1):
             raise ValueError(f"burst_rate must be 0-1, got {burst_rate}")
@@ -81,8 +72,7 @@ class LossSimulator:
         if burst_length < 1:
             raise ValueError(f"burst_length must be >= 1, got {burst_length}")
         
-        if seed is not None:
-            random.seed(seed)
+        rng = random.Random(seed)
         
         result = list(packets)
         lost_indices = []
@@ -90,15 +80,14 @@ class LossSimulator:
         burst_counter = 0
         
         for i in range(len(result)):
-            # Decide if burst starts
-            if not in_burst and random.random() < burst_rate:
+            if not in_burst and result[i] is not None and rng.random() < burst_rate:
                 in_burst = True
                 burst_counter = 0
             
-            # If in burst, drop packet
             if in_burst:
-                result[i] = None
-                lost_indices.append(i)
+                if result[i] is not None:
+                    result[i] = None
+                    lost_indices.append(i)
                 burst_counter += 1
                 if burst_counter >= burst_length:
                     in_burst = False
@@ -109,77 +98,57 @@ class LossSimulator:
     def apply_bit_corruption(packet: bytes, corruption_rate: float, seed: Optional[int] = None) -> bytes:
         """
         Flip random bits in a packet.
-        
-        Args:
-            packet: Packet bytes
-            corruption_rate: Probability each bit is flipped (0-1e-6, very small)
-            seed: Random seed
-        
-        Returns:
-            Corrupted packet bytes
         """
-        if corruption_rate < 0 or corruption_rate > 1.0:
-            raise ValueError(f"corruption_rate must be between 0 and 1, got {corruption_rate}")
-        
-        if seed is not None:
-            random.seed(seed)
+        if not (0 <= corruption_rate <= 1):
+            raise ValueError(f"corruption_rate must be 0-1, got {corruption_rate}")
         
         if corruption_rate == 0:
             return packet
+            
+        rng = random.Random(seed)
         
-        # Convert to bytearray for modification
         corrupted = bytearray(packet)
         num_bits = len(corrupted) * 8
         num_flips = int(num_bits * corruption_rate)
         
-        # Randomly select bit positions to flip
         for _ in range(num_flips):
-            byte_idx = random.randint(0, len(corrupted) - 1)
-            bit_idx = random.randint(0, 7)
+            byte_idx = rng.randint(0, len(corrupted) - 1)
+            bit_idx = rng.randint(0, 7)
             corrupted[byte_idx] ^= (1 << bit_idx)
         
         return bytes(corrupted)
     
     @staticmethod
-    def apply_corruption_to_packets(packets: List[Optional[bytes]], corruption_rate: float, seed: Optional[int] = None) -> List[Optional[bytes]]:
+    def apply_corruption_to_packets(
+        packets: List[Optional[bytes]], 
+        corruption_rate: float, 
+        seed: Optional[int] = None
+    ) -> List[Optional[bytes]]:
         """
         Apply bit corruption to all present packets.
-        
-        Args:
-            packets: List of packet bytes (None entries skipped)
-            corruption_rate: Bit flip probability
-            seed: Random seed
-        
-        Returns:
-            Packets with bit corruption applied
         """
-        if seed is not None:
-            random.seed(seed)
+        rng = random.Random(seed)
         
         result = []
         for packet in packets:
             if packet is None:
                 result.append(None)
             else:
-                result.append(LossSimulator.apply_bit_corruption(packet, corruption_rate))
+                # Use sub-seed for consistent packet-level corruption if needed
+                result.append(LossSimulator.apply_bit_corruption(packet, corruption_rate, seed=rng.getrandbits(32)))
         
         return result
     
     @staticmethod
-    def apply_scenario(packets: List[bytes], scenario: LossScenario, seed: Optional[int] = None) -> Tuple[List[Optional[bytes]], dict]:
+    def apply_scenario(
+        packets: List[bytes], 
+        scenario: LossScenario, 
+        seed: Optional[int] = None
+    ) -> Tuple[List[Optional[bytes]], Dict]:
         """
         Apply complete loss scenario.
-        
-        Args:
-            packets: List of packet bytes
-            scenario: LossScenario with parameters
-            seed: Random seed
-        
-        Returns:
-            (packets_with_loss, stats)
         """
-        if seed is not None:
-            random.seed(seed)
+        rng = random.Random(seed)
         
         stats = {
             "original_count": len(packets),
@@ -188,31 +157,42 @@ class LossSimulator:
             "corruption_count": 0,
         }
         
-        result = list(packets)
-        lost_to_drop = set()
+        # Start with all packets present
+        result: List[Optional[bytes]] = list(packets)
         
         # Apply random loss
         if scenario.random_loss_rate > 0:
-            result_with_random, random_lost = LossSimulator.apply_random_loss(result, scenario.random_loss_rate)
-            result = result_with_random
-            lost_to_drop.update(random_lost)
+            result, random_lost = LossSimulator.apply_random_loss(
+                result, 
+                scenario.random_loss_rate, 
+                seed=rng.getrandbits(32)
+            )
             stats["random_loss_count"] = len(random_lost)
         
-        # Apply burst loss
+        # Apply burst loss (on what's left)
         if scenario.burst_loss_rate > 0:
-            result_with_burst, burst_lost = LossSimulator.apply_burst_loss(result, scenario.burst_loss_rate, scenario.burst_length)
-            result = result_with_burst
-            for idx in burst_lost:
-                if result[idx] is None:
-                    lost_to_drop.add(idx)
-            stats["burst_loss_count"] = len([i for i in burst_lost if i not in lost_to_drop])
+            before_burst_none = sum(1 for p in result if p is None)
+            result, burst_lost = LossSimulator.apply_burst_loss(
+                result, 
+                scenario.burst_loss_rate, 
+                scenario.burst_length, 
+                seed=rng.getrandbits(32)
+            )
+            after_burst_none = sum(1 for p in result if p is None)
+            # Fix: count newly dropped packets
+            stats["burst_loss_count"] = after_burst_none - before_burst_none
         
         # Apply bit corruption
         if scenario.bit_corruption_rate > 0:
-            result = LossSimulator.apply_corruption_to_packets(result, scenario.bit_corruption_rate)
-            stats["corruption_count"] = sum(1 for p in result if p is not None)
+            present_before = sum(1 for p in result if p is not None)
+            result = LossSimulator.apply_corruption_to_packets(
+                result, 
+                scenario.bit_corruption_rate, 
+                seed=rng.getrandbits(32)
+            )
+            stats["corruption_count"] = present_before # Count packets that were subject to corruption
         
-        stats["total_loss_count"] = len([p for p in result if p is None])
+        stats["total_loss_count"] = sum(1 for p in result if p is None)
         stats["loss_rate"] = stats["total_loss_count"] / len(result) if result else 0
         
         return result, stats

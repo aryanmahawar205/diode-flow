@@ -30,8 +30,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from data_diode.common.models import TransferManifest
-from data_diode.common.config import (
+from common.models import TransferManifest
+from common.config import (
     PROTOCOL_VERSION,
     DEFAULT_CHUNK_SIZE,
     compute_chunk_count,
@@ -82,25 +82,7 @@ def _compute_file_sha256(file_path: str) -> str:
     return sha256.hexdigest()
 
 
-def _compute_merkle_root_placeholder(total_chunks: int) -> str:
-    """
-    Placeholder merkle root.
-
-    In production, this would be computed by m3_merkle after chunking.
-    For now, return deterministic placeholder based on total_chunks.
-
-    Parameters:
-        total_chunks: Number of chunks.
-
-    Returns:
-        Hex string representing merkle root.
-    """
-    # Deterministic placeholder: hash(str(total_chunks))
-    data = f"merkle_root_placeholder_{total_chunks}".encode()
-    return hashlib.sha256(data).hexdigest()
-
-
-from data_diode.sender.m0_compress import CompressionResult
+from sender.m0_compress import CompressionResult
 
 def generate_manifest(
     file_path: str,
@@ -154,8 +136,8 @@ def generate_manifest(
     total_chunks = compute_chunk_count(file_size, chunk_size)
     total_windows = compute_window_count(file_size, profile.window_size_bytes)
 
-    # Use provided merkle root or placeholder
-    final_merkle_root = merkle_root or _compute_merkle_root_placeholder(total_chunks)
+    if merkle_root is None:
+        raise ValueError("merkle_root must be provided to generate_manifest")
 
     # Create manifest
     manifest = TransferManifest(
@@ -174,7 +156,7 @@ def generate_manifest(
         interleave_depth=profile.interleave_depth,
         window_size_bytes=profile.window_size_bytes,
         total_windows=total_windows,
-        merkle_root=final_merkle_root,
+        merkle_root=merkle_root,
         mime_type=mime_type,
         creation_timestamp=time.time(),
         classification_level=classification_level,
@@ -233,7 +215,7 @@ def validate_manifest(manifest: TransferManifest) -> list[str]:
         errors.append(f"total_windows must be positive, got {manifest.total_windows}")
 
     # Hard limits
-    from data_diode.common.config import MAX_CHUNKS_PER_WINDOW, MAX_WINDOWS_PER_TRANSFER
+    from common.config import MAX_CHUNKS_PER_WINDOW, MAX_WINDOWS_PER_TRANSFER
     if manifest.total_chunks > MAX_CHUNKS_PER_WINDOW:
         errors.append(
             f"total_chunks {manifest.total_chunks} exceeds limit "

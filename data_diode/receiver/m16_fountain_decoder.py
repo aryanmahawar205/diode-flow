@@ -5,7 +5,7 @@ Fountain decoder wrapper for receiver pipeline.
 from __future__ import annotations
 
 import logging
-from data_diode.fountain.interface import get_decoder, DecodeResult, EncodedPacket
+from fountain import get_decoder, DecodeResult, EncodedPacket
 
 logger = logging.getLogger(__name__)
 

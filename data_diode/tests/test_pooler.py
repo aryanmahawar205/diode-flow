@@ -4,8 +4,8 @@ tests/test_pooler.py — Tests for packet pooling and deduplication.
 
 import pytest
 import time
-from data_diode.receiver.m15_pooler import PacketPool
-from data_diode.fountain.interface import EncodedPacket
+from receiver.m15_pooler import PacketPool
+from fountain.interface import EncodedPacket
 
 def test_pool_add_packet():
     pool = PacketPool()

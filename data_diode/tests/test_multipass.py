@@ -8,7 +8,7 @@ Tests for sender/m7_multipass.py:
 """
 
 import pytest
-from data_diode.sender.m7_multipass import (
+from sender.m7_multipass import (
     seed_for_pass,
     generate_seeds,
     verify_seed_uncorrelation,

@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import logging
 import time
+import psutil
 from dataclasses import dataclass
 from typing import Optional
-from data_diode.common.models import TransferManifest
+from common.models import TransferManifest
 
 logger = logging.getLogger(__name__)
 
@@ -93,4 +94,15 @@ class ManifestValidator:
             return ValidationError(False, "REPLAY: timestamp too old")
         if timestamp > transfer_start + max_duration:
             return ValidationError(False, "REPLAY: timestamp too far in future")
+        return ValidationError(True)
+
+    def check_memory_budget(self, manifest: TransferManifest) -> ValidationError:
+        """Estimate memory needed for decode and check against available RAM."""
+        available_mb = psutil.virtual_memory().available / 1024**2
+        # Estimate Tanner graph memory: chunks * size * some_factor
+        # A safe estimate is (K_prime * chunk_size * 2)
+        K_prime = manifest.total_chunks // manifest.total_windows if manifest.total_windows else manifest.total_chunks
+        estimated_mb = (K_prime * manifest.chunk_size * 2) / 1024**2
+        if estimated_mb > available_mb * 0.80:
+             return ValidationError(False, f"Insufficient RAM: need ~{estimated_mb:.0f}MB, have {available_mb:.0f}MB")
         return ValidationError(True)

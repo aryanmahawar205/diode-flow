@@ -68,7 +68,7 @@ MAX_CHUNKS_PER_WINDOW = 120000
 MAX_RS_PARITY = 128
 
 # Maximum passes (prevent combinatorial explosion)
-MAX_PASSES = 10
+MAX_PASSES = 2
 
 # Maximum total windows in a transfer
 MAX_WINDOWS_PER_TRANSFER = 10000
@@ -82,8 +82,8 @@ MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024 * 1024  # 100 GB
 
 # Size categories (by file size in bytes)
 FILE_SIZES = {
-    "small": (0, 10 * 1024 * 1024),              # < 10 MB
-    "medium": (10 * 1024 * 1024, 1024**3),       # 10 MB - 1 GB
+    "small": (0, 64 * 1024 * 1024),              # < 64 MB (updated to match new windowing logic)
+    "medium": (64 * 1024 * 1024, 1024**3),       # 64 MB - 1 GB
     "large": (1024**3, float('inf')),            # > 1 GB
 }
 
@@ -92,55 +92,48 @@ CRITICALITY_LEVELS = ["standard", "critical", "classified"]
 
 # Profile table: (size_category, criticality) -> TransferProfile
 PROFILES: dict[tuple[str, str], TransferProfile] = {
-    # Small files (< 10 MB)
+    # Small files (< 64 MB) — redundancy priority
     ("small", "standard"):    TransferProfile(
-        num_passes=1, overhead_ratio=0.25, rs_n=16, rs_k=14,
+        num_passes=1, overhead_ratio=0.5, rs_n=20, rs_k=14,
         interleave_depth=2, header_redundancy=3,
         window_size_bytes=16 * 1024 * 1024,
     ),
+
     ("small", "critical"):    TransferProfile(
-        num_passes=2, overhead_ratio=0.25, rs_n=16, rs_k=12,
+        num_passes=2, overhead_ratio=0.4, rs_n=24, rs_k=12,
         interleave_depth=3, header_redundancy=5,
         window_size_bytes=16 * 1024 * 1024,
     ),
-    ("small", "classified"):  TransferProfile(
-        num_passes=2, overhead_ratio=0.30, rs_n=32, rs_k=24,
-        interleave_depth=4, header_redundancy=5,
-        window_size_bytes=16 * 1024 * 1024,
-    ),
 
-    # Medium files (10 MB – 1 GB)
+    # Medium files (64 MB – 1 GB) — balanced
     ("medium", "standard"):   TransferProfile(
-        num_passes=1, overhead_ratio=0.20, rs_n=32, rs_k=28,
+        num_passes=1, overhead_ratio=0.30, rs_n=32, rs_k=32,
         interleave_depth=3, header_redundancy=3,
         window_size_bytes=64 * 1024 * 1024,
     ),
     ("medium", "critical"):   TransferProfile(
-        num_passes=2, overhead_ratio=0.20, rs_n=32, rs_k=26,
+        num_passes=2, overhead_ratio=0.35, rs_n=32, rs_k=32,
         interleave_depth=4, header_redundancy=5,
         window_size_bytes=64 * 1024 * 1024,
     ),
-    ("medium", "classified"): TransferProfile(
-        num_passes=2, overhead_ratio=0.25, rs_n=32, rs_k=24,
-        interleave_depth=5, header_redundancy=5,
-        window_size_bytes=64 * 1024 * 1024,
-    ),
 
-    # Large files (> 1 GB)
+    # Large files (> 1 GB) — performance priority, large windows
     ("large", "standard"):    TransferProfile(
-        num_passes=1, overhead_ratio=0.15, rs_n=64, rs_k=60,
+        num_passes=1, overhead_ratio=0.25, rs_n=64, rs_k=64,
         interleave_depth=4, header_redundancy=3,
         window_size_bytes=128 * 1024 * 1024,
     ),
     ("large", "critical"):    TransferProfile(
-        num_passes=2, overhead_ratio=0.15, rs_n=64, rs_k=58,
+        num_passes=2, overhead_ratio=0.30, rs_n=64, rs_k=64,
         interleave_depth=6, header_redundancy=5,
         window_size_bytes=128 * 1024 * 1024,
     ),
-    ("large", "classified"):  TransferProfile(
-        num_passes=2, overhead_ratio=0.20, rs_n=64, rs_k=56,
-        interleave_depth=8, header_redundancy=5,
-        window_size_bytes=128 * 1024 * 1024,
+
+    # Catch-all profiles
+    ("any", "classified"):    TransferProfile(
+        num_passes=2, overhead_ratio=0.25, rs_n=32, rs_k=24,
+        interleave_depth=5, header_redundancy=5,
+        window_size_bytes=64 * 1024 * 1024,
     ),
 }
 
@@ -236,7 +229,10 @@ def get_profile(file_size: int, criticality: str) -> TransferProfile:
 
     key = (size_cat, criticality)
     if key not in PROFILES:
-        raise ValueError(f"No profile for {key}")
+        # Fallback to catch-all
+        key = ("any", criticality)
+        if key not in PROFILES:
+            raise ValueError(f"No profile for {criticality}")
 
     return PROFILES[key]
 

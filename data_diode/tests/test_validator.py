@@ -4,9 +4,9 @@ tests/test_validator.py — Tests for packet and manifest validation.
 
 import pytest
 import time
-from data_diode.receiver.m13_validator import PacketValidator, ManifestValidator
-from data_diode.common.models import TransferManifest
-from data_diode.fountain.interface import EncodedPacket
+from receiver.m13_validator import PacketValidator, ManifestValidator
+from common.models import TransferManifest
+from fountain.interface import EncodedPacket
 
 @pytest.fixture
 def manifest():

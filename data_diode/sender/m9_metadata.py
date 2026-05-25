@@ -32,6 +32,17 @@ def verify_blake3_mac(data: bytes, mac: bytes, shared_secret: bytes) -> bool:
     return hmac.compare_digest(mac, expected)
 
 
+def compute_checksums(metadata_bytes: bytes, payload: bytes, shared_secret: bytes) -> tuple[int, bytes]:
+    """
+    Compute CRC32C and BLAKE3-MAC for a packet.
+    MAC covers both metadata and payload.
+    """
+    crc = compute_crc32c(payload)
+    mac_input = metadata_bytes + payload
+    mac = compute_blake3_mac(mac_input, shared_secret)
+    return crc, mac
+
+
 def sign_manifest(manifest_bytes: bytes, private_key: ed25519.Ed25519PrivateKey) -> bytes:
     """Sign manifest with Ed25519."""
     return private_key.sign(manifest_bytes)

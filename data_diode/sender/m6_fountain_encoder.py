@@ -4,8 +4,8 @@ sender/m6_fountain_encoder.py — Fountain Encoder Wrapper
 
 from __future__ import annotations
 from typing import List
-from data_diode.fountain.interface import get_encoder, EncodedPacket
-from data_diode.sender.m7_multipass import seed_for_pass
+from fountain.interface import get_encoder, EncodedPacket
+from sender.m7_multipass import seed_for_pass
 
 
 def encode_window_multipass(
@@ -41,7 +41,6 @@ def encode_window_multipass(
         # Assign metadata to each packet
         for p in encoded_packets:
             p.pass_id = pass_id
-            # Note: transfer_id and window_id are not in EncodedPacket anymore
         
         all_packets.extend(encoded_packets)
     

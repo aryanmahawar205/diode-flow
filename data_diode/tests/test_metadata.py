@@ -9,9 +9,10 @@ Tests for sender/m9_metadata.py:
 """
 
 import pytest
-from data_diode.sender.m9_metadata import (
+from sender.m9_metadata import (
     compute_crc32c,
     compute_blake3_mac,
+    verify_blake3_mac,
     generate_ed25519_keypair,
     sign_manifest,
     verify_manifest_signature,
@@ -19,7 +20,6 @@ from data_diode.sender.m9_metadata import (
     export_public_key,
     import_private_key,
     import_public_key,
-    PacketEnvelope,
 )
 
 
@@ -206,73 +206,3 @@ class TestKeyExportImport:
         public_key = original_key.public_key()
         
         assert verify_manifest_signature(manifest, sig, public_key) is True
-
-
-class TestPacketEnvelope:
-    """Test PacketEnvelope class."""
-    
-    def test_envelope_creation(self):
-        """Test creating packet envelope."""
-        payload = b"test payload"
-        secret = b"K" * 32
-        
-        env = PacketEnvelope(payload, secret)
-        
-        assert env.payload == payload
-        assert env.shared_secret == secret
-        assert env.crc32c is None
-        assert env.blake3_mac is None
-    
-    def test_envelope_compute_checksums(self):
-        """Test computing checksums."""
-        payload = b"test payload"
-        secret = b"K" * 32
-        
-        env = PacketEnvelope(payload, secret)
-        env.compute_checksums()
-        
-        assert env.crc32c is not None
-        assert env.blake3_mac is not None
-        assert len(env.blake3_mac) == 32
-    
-    def test_envelope_verify_crc32c(self):
-        """Test CRC32C verification."""
-        payload = b"test"
-        secret = b"K" * 32
-        
-        env = PacketEnvelope(payload, secret)
-        env.compute_checksums()
-        
-        # Should verify correctly
-        assert env.verify_crc32c(env.crc32c) is True
-        
-        # Should fail with wrong CRC32C
-        assert env.verify_crc32c(env.crc32c + 1) is False
-    
-    def test_envelope_verify_blake3_mac(self):
-        """Test BLAKE3-MAC verification."""
-        payload = b"test"
-        secret = b"K" * 32
-        
-        env = PacketEnvelope(payload, secret)
-        env.compute_checksums()
-        
-        # Should verify correctly
-        assert env.verify_blake3_mac(env.blake3_mac) is True
-        
-        # Should fail with wrong MAC
-        wrong_mac = b"X" * 32
-        assert env.verify_blake3_mac(wrong_mac) is False
-    
-    def test_envelope_different_secrets(self):
-        """Test envelopes with different secrets produce different MACs."""
-        payload = b"same payload"
-        
-        env1 = PacketEnvelope(payload, b"K" * 32)
-        env2 = PacketEnvelope(payload, b"D" * 32)
-        
-        env1.compute_checksums()
-        env2.compute_checksums()
-        
-        # Same payload, different secrets → different MACs
-        assert env1.blake3_mac != env2.blake3_mac

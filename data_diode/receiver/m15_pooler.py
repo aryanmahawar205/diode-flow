@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Dict, Set, Optional
-from data_diode.fountain.interface import EncodedPacket
+from fountain.interface import EncodedPacket
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,8 @@ class PacketPool:
     def is_ready_to_decode(self, transfer_id: str, window_id: int, K_prime: int) -> bool:
         """Check if a window pool is ready for decoding."""
         count = self.get_packet_count(transfer_id, window_id)
-        if count >= int(K_prime * 1.05):
+        # Use 1.1x threshold + at least 2 extra packets to avoid premature decode on tiny windows
+        if count >= max(int(K_prime * 1.10), K_prime + 2):
             return True
         
         if count == 0:

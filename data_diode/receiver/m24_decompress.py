@@ -28,13 +28,17 @@ def decompress_file(
     Returns True on success. Returns False (never raises) on any failure.
     """
     if algorithm == "none":
-        import shutil
-        shutil.copy2(compressed_path, output_path)
-        actual = _sha256_streaming(output_path)
-        if not hmac.compare_digest(actual, expected_sha256):
-            logger.error("SHA-256 mismatch on uncompressed file")
+        try:
+            import shutil
+            shutil.copy2(compressed_path, output_path)
+            actual = _sha256_streaming(output_path)
+            if not hmac.compare_digest(actual, expected_sha256):
+                logger.error("SHA-256 mismatch on uncompressed file")
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Copy/Verify failed: {e}")
             return False
-        return True
 
     if algorithm != "lz4":
         logger.error(f"Unknown compression algorithm: {algorithm}")
@@ -59,7 +63,11 @@ def decompress_file(
         logger.error("Decompressed SHA-256 mismatch — file corrupted in transit")
         return False
 
-    os.remove(compressed_path)
+    try:
+        os.remove(compressed_path)
+    except Exception as e:
+        logger.warning(f"Failed to remove compressed temp file {compressed_path}: {e}")
+        
     logger.info(f"Decompressed and verified: {output_path}")
     return True
 

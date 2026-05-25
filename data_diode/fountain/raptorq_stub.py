@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 
-from data_diode.fountain.interface import IFountainEncoder, IFountainDecoder, EncodedPacket, DecodeResult
+from fountain.interface import IFountainEncoder, IFountainDecoder, EncodedPacket, DecodeResult
 
 logger = logging.getLogger(__name__)
 

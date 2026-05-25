@@ -13,11 +13,11 @@ import crcmod
 from io import BytesIO
 from typing import Optional
 
-from data_diode.common.models import (
+from common.models import (
     TransferManifest,
     WindowManifest,
 )
-from data_diode.fountain.interface import EncodedPacket
+from fountain.interface import EncodedPacket
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def serialize_packet(packet: EncodedPacket) -> bytes:
         "source_chunk_count" : packet.source_chunk_count,
         "data"               : packet.data.hex(),
     }
-    json_bytes = json.dumps(packet_dict).encode("utf-8")
+    json_bytes = json.dumps(packet_dict, separators=(',', ':')).encode("utf-8")
     frame = BytesIO()
     frame.write(struct.pack("B", PACKET_VERSION))
     frame.write(struct.pack(">I", len(json_bytes)))

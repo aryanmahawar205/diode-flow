@@ -37,8 +37,11 @@ class TransferManifest:
     sender_node_id: str           # configurable sender identifier
     protocol_version: str         # e.g. "1.0.0" — schema versioning
     file_name: str                # original filename
+    
+    # NOTE: file_size and file_sha256 refer to the COMPRESSED/in-transit bytes.
     file_size: int                # bytes (compressed/in-transit)
     file_sha256: str              # hex SHA-256 (compressed/in-transit)
+    
     chunk_size: int               # bytes per chunk (fixed, except last padded)
     total_chunks: int             # K — original chunks before RS
     rs_n: int                     # Reed-Solomon n parameter (data + parity)
@@ -54,15 +57,54 @@ class TransferManifest:
     classification_level: str     # "standard" | "critical" | "classified"
     expiration_policy: int        # seconds after which transfer is invalid
     ed25519_signature: bytes      # Ed25519 sig over all above fields (optional for Phase 1)
-    compression_algorithm: str = "none" # "lz4" | "none"
-    compressed_size: int = 0      # bytes after compression
-    original_size: int = 0        # bytes before compression
-    original_sha256: str = ""     # hex SHA-256 of original file
+    
+    # Compression fields
+    compression_algorithm: str = "none" # "lz4" or "none"
+    compressed_size: int = 0            # bytes after compression (same as file_size)
+    original_size: int = 0               # bytes before compression
+    original_sha256: str = ""           # hex SHA-256 of original file (pre-compression)
 
 
 # ==============================================================================
-# WINDOW MANIFEST (per-window metadata)
+# PROGRESS TRACKING
 # ==============================================================================
+
+import time
+import logging
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class TransferProgress:
+    """Real-time progress for large file transfers."""
+    transfer_id       : str
+    file_name         : str
+    total_windows     : int
+    completed_windows : int   = 0
+    total_packets     : int   = 0
+    start_time        : float = field(default_factory=time.time)
+
+    @property
+    def percent_complete(self) -> float:
+        return (self.completed_windows / self.total_windows * 100
+                if self.total_windows else 0.0)
+
+    @property
+    def eta_seconds(self) -> float:
+        if self.completed_windows == 0:
+            return float('inf')
+        rate = self.completed_windows / max(time.time() - self.start_time, 0.001)
+        return (self.total_windows - self.completed_windows) / rate
+
+    def log(self) -> None:
+        eta = self.eta_seconds
+        eta_str = (f"{eta/60:.1f}min" if eta < 3600 else f"{eta/3600:.1f}hr"
+                   if eta != float('inf') else "unknown")
+        logger.info(
+            f"[{self.transfer_id[:8]}] {self.percent_complete:.1f}% | "
+            f"Window {self.completed_windows}/{self.total_windows} | "
+            f"ETA: {eta_str} | Packets: {self.total_packets:,}"
+        )
 
 
 @dataclass
@@ -241,29 +283,9 @@ class TransferDecodeSession:
 @dataclass
 class LossScenario:
     """Configurable packet loss scenario for testing robustness."""
-    name: str                     # e.g., "10% random loss"
     random_loss_rate: float = 0.0  # drop each packet with this probability
     burst_loss_start_frac: float = 0.0  # where burst starts (0.0 - 1.0)
     burst_loss_length: int = 0     # how many consecutive packets to drop
     corruption_rate: float = 0.0   # flip bits in this fraction of packets
     duplicate_rate: float = 0.0    # duplicate this fraction of packets
     reorder_window: int = 0        # sliding window size for random reordering
-
-
-@dataclass
-class TransferProgress:
-    """Real-time monitoring of a transfer."""
-    transfer_id      : str
-    file_name        : str
-    total_bytes      : int
-    bytes_recovered  : int
-    windows_total    : int
-    windows_complete : int
-    packets_received : int
-    status           : str      # "receiving" | "complete" | "failed"
-    error            : str = ""
-
-    @property
-    def percentage(self) -> float:
-        if self.total_bytes == 0: return 0.0
-        return (self.bytes_recovered / self.total_bytes) * 100

@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from data_diode.fountain.interface import (
+from fountain.interface import (
     IFountainEncoder,
     IFountainDecoder,
     EncodedPacket,
@@ -30,8 +30,8 @@ from data_diode.fountain.interface import (
     list_encoders,
     list_decoders,
 )
-from data_diode.fountain.lt_encoder import LTEncoder
-from data_diode.fountain.lt_decoder import LTDecoder
+from fountain.lt_encoder import LTEncoder
+from fountain.lt_decoder import LTDecoder
 
 
 class TestInterfaceRegistry:

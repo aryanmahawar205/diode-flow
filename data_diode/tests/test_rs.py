@@ -9,7 +9,7 @@ Tests for sender/m4_rs_encoder.py:
 """
 
 import pytest
-from data_diode.sender.m4_rs_encoder import (
+from sender.m4_rs_encoder import (
     RSConfig,
     parse_rs_config,
     encode_with_rs,

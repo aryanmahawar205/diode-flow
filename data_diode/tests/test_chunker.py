@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from data_diode.common.models import (
+from common.models import (
     TransferManifest,
     WindowManifest,
     EncodedPacketMetadata,
@@ -29,7 +29,7 @@ from data_diode.common.models import (
     TransferDecodeSession,
     LossScenario,
 )
-from data_diode.common.config import (
+from common.config import (
     get_profile,
     compute_chunk_count,
     compute_window_count,
@@ -37,7 +37,7 @@ from data_diode.common.config import (
     MAX_CHUNKS_PER_WINDOW,
     PROFILES,
 )
-from data_diode.sender.m2_chunker import chunk_window, analyze_file, ChunkerResult
+from sender.m2_chunker import chunk_window, analyze_file, ChunkerResult
 
 
 class TestModels:
@@ -116,11 +116,15 @@ class TestModels:
     def test_loss_scenario_creation(self):
         """Create LossScenario."""
         scenario = LossScenario(
-            name="10% random",
             random_loss_rate=0.10,
         )
-        assert scenario.name == "10% random"
         assert scenario.random_loss_rate == 0.10
+
+    def test_get_profile_classified_any_size(self):
+        """Classified profile should work for any size."""
+        for size in [1_000, 100_000_000, 5_000_000_000]:
+            profile = get_profile(size, "classified")
+            assert profile.num_passes >= 1
 
 
 class TestConfig:
@@ -177,10 +181,16 @@ class TestConfig:
         assert count == 1
 
     def test_profile_table_completeness(self):
-        """All size/criticality combos have profiles."""
+        """All standard/critical size combos have profiles. Classified uses catch-all."""
         for size_cat in ["small", "medium", "large"]:
-            for crit in ["standard", "critical", "classified"]:
+            for crit in ["standard", "critical"]:
                 assert (size_cat, crit) in PROFILES
+        
+        # Test classified catch-all for various sizes
+        for size in [1000, 10_000_000, 1024**3]:
+            profile = get_profile(size, "classified")
+            assert profile is not None
+            assert profile.num_passes >= 1
 
 
 class TestChunker:

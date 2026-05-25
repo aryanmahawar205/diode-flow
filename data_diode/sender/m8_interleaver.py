@@ -4,49 +4,38 @@ sender/m8_interleaver.py — Packet Interleaver
 
 from __future__ import annotations
 from typing import List
-from data_diode.fountain.interface import EncodedPacket
+from fountain.interface import EncodedPacket
 
 
 def interleave_encoded_packets(
-    all_packets: List[EncodedPacket],
+    packets_by_pass: List[List[EncodedPacket]],
     stride: int
 ) -> List[EncodedPacket]:
     """
     Interleave packets across passes and within each pass.
-    
-    Algorithm:
-    1. Group packets by pass_id.
-    2. Interleave each pass independently using stride.
-    3. Interleave the reordered passes together (round-robin).
     """
     if stride < 1:
         raise ValueError(f"stride must be >= 1, got {stride}")
     
-    if not all_packets:
+    if not packets_by_pass:
         return []
 
-    # Group by pass_id
-    passes_dict = {}
-    for p in all_packets:
-        if p.pass_id not in passes_dict:
-            passes_dict[p.pass_id] = []
-        passes_dict[p.pass_id].append(p)
-    
-    # Sort pass IDs to be deterministic
-    pass_ids = sorted(passes_dict.keys())
-    
-    # Interleave each pass independently
+    # Interleave each pass independently using stride
     interleaved_passes = []
-    for pid in pass_ids:
-        pkts = passes_dict[pid]
-        # Stride interleave within pass
+    for pkts in packets_by_pass:
+        if not pkts:
+            continue   # skip empty passes gracefully
+            
         reordered = []
         for offset in range(stride):
             for i in range(offset, len(pkts), stride):
                 reordered.append(pkts[i])
         interleaved_passes.append(reordered)
     
-    # Interleave passes together (round-robin by position)
+    if not interleaved_passes:
+        return []
+
+    # Interleave reordered passes together (round-robin)
     result = []
     max_packets = max(len(p) for p in interleaved_passes)
     

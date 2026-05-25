@@ -18,10 +18,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 
-from data_diode.common.models import TransferManifest, WindowManifest
-from data_diode.common.config import get_profile
-from data_diode.sender.m0_manifest import generate_manifest, validate_manifest
-from data_diode.sender.m10_serializer import (
+from common.models import TransferManifest, WindowManifest
+from common.config import get_profile
+from sender.m0_manifest import generate_manifest, validate_manifest
+from sender.m10_serializer import (
     serialize_manifest,
     deserialize_manifest,
     serialize_window_manifest,
@@ -43,7 +43,8 @@ class TestManifestGeneration:
             manifest = generate_manifest(
                 file_path,
                 sender_node_id="test-sender",
-                profile=profile
+                profile=profile,
+                merkle_root="0" * 64
             )
 
             assert manifest.file_name == Path(file_path).name
@@ -69,7 +70,8 @@ class TestManifestGeneration:
             manifest = generate_manifest(
                 file_path,
                 sender_node_id="test-sender",
-                profile=profile
+                profile=profile,
+                merkle_root="0" * 64
             )
 
             # Check profile params transferred to manifest
@@ -92,7 +94,8 @@ class TestManifestGeneration:
                 file_path,
                 sender_node_id="test-sender",
                 profile=profile,
-                classification_level="critical"  # Must pass to manifest generation
+                classification_level="critical",  # Must pass to manifest generation
+                merkle_root="0" * 64
             )
 
             assert manifest.file_size == 5 * 1024 * 1024
@@ -112,7 +115,8 @@ class TestManifestGeneration:
             manifest = generate_manifest(
                 file_path,
                 sender_node_id="test-sender",
-                profile=profile
+                profile=profile,
+                merkle_root="0" * 64
             )
 
             # Check all fields exist and are reasonable
@@ -138,7 +142,8 @@ class TestManifestGeneration:
                     file_path,
                     sender_node_id="test-sender",
                     profile=profile,
-                    classification_level=criticality
+                    classification_level=criticality,
+                    merkle_root="0" * 64
                 )
 
                 assert manifest.classification_level == criticality
@@ -160,7 +165,8 @@ class TestManifestValidation:
             manifest = generate_manifest(
                 file_path,
                 sender_node_id="test-sender",
-                profile=profile
+                profile=profile,
+                merkle_root="0" * 64
             )
             errors = validate_manifest(manifest)
             assert errors == [], f"Unexpected validation errors: {errors}"
@@ -273,7 +279,8 @@ class TestSerialization:
             manifest = generate_manifest(
                 file_path,
                 sender_node_id="test-sender",
-                profile=profile
+                profile=profile,
+                merkle_root="0" * 64
             )
             serialized = serialize_manifest(manifest)
             deserialized = deserialize_manifest(serialized)
@@ -318,7 +325,8 @@ class TestSerialization:
             manifest = generate_manifest(
                 file_path,
                 sender_node_id="test-sender",
-                profile=profile
+                profile=profile,
+                merkle_root="0" * 64
             )
             serialized = serialize_manifest(manifest)
 
@@ -349,7 +357,8 @@ class TestSerialization:
                 file_path,
                 sender_node_id="test-sender-large",
                 profile=profile,
-                classification_level="classified"
+                classification_level="classified",
+                merkle_root="0" * 64
             )
 
             serialized = serialize_manifest(manifest)

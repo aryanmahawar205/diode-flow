@@ -44,7 +44,7 @@ from typing import Tuple
 DEFAULT_CHUNK_SIZE = 512
 
 
-from data_diode.common.models import TransferProfile
+from common.models import TransferProfile
 
 @dataclass(frozen=True)
 class Profile:
@@ -75,13 +75,13 @@ class Profile:
         return DEFAULT_CHUNK_SIZE
 
 
-from data_diode.common.config import PROFILES as CONFIG_PROFILES
+from common.config import PROFILES as CONFIG_PROFILES
 
 def get_profile(file_size_bytes: int, criticality: str) -> Profile:
     """
     Retrieve the transfer profile.
     """
-    from data_diode.common.config import get_profile as get_base_profile
+    from common.config import get_profile as get_base_profile
     base = get_base_profile(file_size_bytes, criticality)
     return Profile(base=base)
 

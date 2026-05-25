@@ -13,15 +13,17 @@ import time
 from pathlib import Path
 from typing import Optional
 
-# Add data_diode to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add root and data_diode to path
+root_dir = str(Path(__file__).parent)
+sys.path.insert(0, root_dir)
+sys.path.insert(0, os.path.join(root_dir, "data_diode"))
 
-from data_diode.sender.pipeline import run_sender
-from data_diode.receiver.pipeline import run_receiver
-from data_diode.common.config import DEFAULT_UDP_PORT, LOOPBACK_ADDRESS
+from sender.pipeline import run_sender
+from receiver.pipeline import run_receiver
+from common.config import DEFAULT_UDP_PORT, LOOPBACK_ADDRESS
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("simulate_diode")
@@ -76,7 +78,7 @@ def main():
     
     # Wait for completion
     file_name = os.path.basename(args.file)
-    timeout = 60
+    timeout = 300
     start = time.time()
     while time.time() - start < timeout:
         if os.path.exists(os.path.join(args.storage, file_name)):

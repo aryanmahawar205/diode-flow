@@ -83,7 +83,13 @@ def run_demo():
         env["PYTHONPATH"] = "."
         
         start_time = time.time()
-        process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        
+        import selectors
+        import sys
+        
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
         
         # Stream output
         success = False
@@ -100,34 +106,52 @@ def run_demo():
             "verification passed",   # Step 21
             "Stored file",           # Step 23
             "SUCCESS!",              # Final
-            "METRICS:"               # Metrics
+            "METRICS:",               # Metrics
+            "Window",                # Progress
         ]
-        for line in process.stdout:
-            line = line.strip()
-            if not line: continue
+        
+        last_elapsed_print = 0
+        while process.poll() is None:
+            events = selector.select(timeout=0.1)
             
-            if "SUCCESS!" in line:
-                print(f"  {Colors.OKGREEN}✔ {line.split('] ')[-1]}{Colors.ENDC}")
-                success = True
-            elif "METRICS:" in line:
-                print(f"  {Colors.OKBLUE}📊 {line.split('] ')[-1]}{Colors.ENDC}")
-            elif "ERROR" in line or "FAIL" in line or "Traceback" in line or "Exception" in line:
-                print(f"  {Colors.FAIL}{line}{Colors.ENDC}")
-            elif any(x.lower() in line.lower() for x in interesting_logs):
-                # Format pipeline steps
-                msg = line.split('] ')[-1]
-                if "Processing window" in msg or "Starting" in msg:
-                    print(f"  {Colors.OKBLUE}➡ {msg}{Colors.ENDC}")
-                elif "RS Decoder — Attempting to recover" in msg:
-                    print(f"    {Colors.WARNING}🔧 {msg}{Colors.ENDC}")
-                else:
-                    print(f"    {Colors.OKCYAN}• {msg}{Colors.ENDC}")
-            else:
-                # Show all output for debugging (optional, keeping it quiet for now)
-                # print(f"    {line}")
-                pass
+            # Print elapsed time every second if no output
+            elapsed = int(time.time() - start_time)
+            if elapsed > last_elapsed_print:
+                sys.stdout.write(f"\r  {Colors.BOLD}{Colors.OKBLUE}[Timer: {elapsed}s]{Colors.ENDC}   ")
+                sys.stdout.flush()
+                last_elapsed_print = elapsed
+
+            if events:
+                line = process.stdout.readline()
+                if not line: continue
+                line = line.strip()
+                
+                # Clear the timer line before printing log
+                sys.stdout.write("\r" + " " * 40 + "\r")
+                
+                if "SUCCESS!" in line:
+                    print(f"  {Colors.OKGREEN}✔ {line.split('] ')[-1]}{Colors.ENDC}")
+                    success = True
+                elif "METRICS:" in line:
+                    print(f"  {Colors.OKBLUE}📊 {line.split('] ')[-1]}{Colors.ENDC}")
+                elif "ERROR" in line or "FAIL" in line or "Traceback" in line or "Exception" in line:
+                    print(f"  {Colors.FAIL}{line}{Colors.ENDC}")
+                elif any(x.lower() in line.lower() for x in interesting_logs):
+                    # Format pipeline steps
+                    msg = line.split('] ')[-1]
+                    if "Processing window" in msg or "Starting" in msg or "stored" in msg:
+                        print(f"  {Colors.OKBLUE}➡ {msg}{Colors.ENDC}")
+                    elif "RS Decoder — Attempting to recover" in msg:
+                        print(f"    {Colors.WARNING}🔧 {msg}{Colors.ENDC}")
+                    else:
+                        print(f"    {Colors.OKCYAN}• {msg}{Colors.ENDC}")
+        
+        # Final read for anything remaining
+        for line in process.stdout:
+            if "SUCCESS!" in line: success = True
 
         process.wait()
+        sys.stdout.write("\r" + " " * 40 + "\r") # Final clear
         duration = time.time() - start_time
         
         if success:

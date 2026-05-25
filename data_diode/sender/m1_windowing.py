@@ -56,7 +56,7 @@ def compute_windows(file_size_bytes: int, window_size_bytes: int) -> list[Window
     Divide a file into windows.
     """
     if file_size_bytes <= 0:
-        return []
+        raise ValueError(f"file_size_bytes must be > 0, got {file_size_bytes}")
     if window_size_bytes <= 0:
         raise ValueError(f"window_size_bytes must be > 0, got {window_size_bytes}")
     

@@ -14,16 +14,16 @@ import hashlib
 
 import pytest
 
-from data_diode.sender.m5_profile import get_profile
-from data_diode.sender.m7_multipass import seed_for_pass, verify_seed_uncorrelation
-from data_diode.sender.m9_metadata import (
+from sender.m5_profile import get_profile
+from sender.m7_multipass import seed_for_pass, verify_seed_uncorrelation
+from sender.m9_metadata import (
     compute_crc32c,
     compute_blake3_mac,
     generate_ed25519_keypair,
     sign_manifest,
     verify_manifest_signature,
 )
-from data_diode.tests.utils.loss_simulator import LossSimulator
+from tests.utils.loss_simulator import LossSimulator
 
 
 class TestPhase2Profiles:

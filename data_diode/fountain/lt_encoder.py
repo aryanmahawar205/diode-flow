@@ -11,7 +11,7 @@ import logging
 import random
 import math
 import numpy as np
-from data_diode.fountain.interface import IFountainEncoder, EncodedPacket
+from fountain.interface import IFountainEncoder, EncodedPacket
 
 logger = logging.getLogger(__name__)
 
@@ -71,19 +71,26 @@ class LTEncoder(IFountainEncoder):
         chunk_size = len(chunks[0])
         n_packets  = math.ceil(K_prime * (1.0 + overhead_ratio))
 
+        # Optimization: Pre-convert chunks to numpy arrays to avoid constant frombuffer() calls
+        np_chunks = [np.frombuffer(c, dtype=np.uint8) for c in chunks]
+
         mu  = _robust_soliton(K_prime)
         cdf = _build_cdf(mu)
         rng = random.Random(seed)    # ← instance, not global state
 
         encoded = []
+        # Optimization: Pre-allocate payload buffer
+        payload = np.zeros(chunk_size, dtype=np.uint8)
+
         for packet_id in range(n_packets):
             degree    = min(_sample_degree(cdf, rng), K_prime, 64) # Cap degree for Phase 2 MTU safety
-            chunk_ids = sorted(rng.sample(range(K_prime), degree))
+            chunk_ids = rng.sample(range(K_prime), degree)
             
-            # numpy XOR (performance)
-            payload = np.zeros(chunk_size, dtype=np.uint8)
+            # Reset payload
+            payload.fill(0)
             for idx in chunk_ids:
-                payload ^= np.frombuffer(chunks[idx], dtype=np.uint8)
+                payload ^= np_chunks[idx]
+            
             data = payload.tobytes()
 
             encoded.append(EncodedPacket(
@@ -91,7 +98,7 @@ class LTEncoder(IFountainEncoder):
                 pass_id            = 0,           # caller sets actual pass_id after
                 seed               = seed,
                 degree             = degree,
-                chunk_ids          = chunk_ids,   # ← stored explicitly
+                chunk_ids          = sorted(chunk_ids),
                 data               = data,
                 source_chunk_count = K_prime,
             ))

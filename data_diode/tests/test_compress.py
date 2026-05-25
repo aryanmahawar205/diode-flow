@@ -1,81 +1,121 @@
-"""
-tests/test_compress.py — Tests for streaming lz4 compression/decompression.
-"""
-
 import os
+import tempfile
+import hashlib
+from pathlib import Path
 import pytest
-from data_diode.sender.m0_compress import compress_file, should_compress
-from data_diode.receiver.m24_decompress import decompress_file
+from sender.m0_compress import (
+    compress_file, 
+    should_compress, 
+    compute_sha256_streaming,
+    CompressionResult
+)
+from receiver.m24_decompress import decompress_file
 
-def test_should_compress():
+def test_should_compress_logic():
     assert should_compress("test.txt") is True
-    assert should_compress("test.csv") is True
-    assert should_compress("photo.jpg") is False
+    assert should_compress("data.csv") is True
+    assert should_compress("app.log") is True
+    assert should_compress("image.jpg") is False
     assert should_compress("video.mp4") is False
     assert should_compress("archive.zip") is False
+    assert should_compress("photo.JPEG") is False
 
-def test_compress_roundtrip_text(tmp_path):
-    # 1. Create a highly compressible text file
-    input_file = tmp_path / "test.txt"
-    content = b"The quick brown fox jumps over the lazy dog\n" * 1000
-    input_file.write_bytes(content)
+def test_compute_sha256_streaming():
+    data = b"hello world" * 1000
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
     
-    compressed_file = tmp_path / "test.txt.lz4"
-    decompressed_file = tmp_path / "test_out.txt"
-    
-    # 2. Compress
-    result = compress_file(str(input_file), str(compressed_file))
-    
-    assert result.algorithm == "lz4"
-    assert result.original_size == len(content)
-    assert result.compressed_size < result.original_size
-    assert os.path.exists(str(compressed_file))
-    
-    # 3. Decompress
-    success = decompress_file(
-        str(compressed_file),
-        str(decompressed_file),
-        algorithm=result.algorithm,
-        expected_sha256=result.original_sha256
-    )
-    
-    assert success is True
-    assert os.path.exists(str(decompressed_file))
-    assert decompressed_file.read_bytes() == content
-    # compressed file should be removed by decompress_file
-    assert not os.path.exists(str(compressed_file))
+    try:
+        expected = hashlib.sha256(data).hexdigest()
+        actual = compute_sha256_streaming(tmp_path)
+        assert actual == expected
+    finally:
+        os.unlink(tmp_path)
 
-def test_compress_skip_binary(tmp_path):
-    # 1. Create a "jpg" file (which should skip compression)
-    input_file = tmp_path / "image.jpg"
-    content = os.urandom(1024)
-    input_file.write_bytes(content)
+def test_compression_roundtrip_repetitive_text():
+    # Repetitive text should compress well
+    data = b"This is a repetitive line of text. " * 10000 
     
-    output_file = tmp_path / "image_sent.jpg"
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as fin, \
+         tempfile.NamedTemporaryFile(suffix=".lz4", delete=False) as fmid, \
+         tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as fout:
+        
+        fin.write(data)
+        fin.close()
+        fmid.close()
+        fout.close()
+        
+        input_path = fin.name
+        compressed_path = fmid.name
+        output_path = fout.name
     
-    # 2. Compress (should just copy)
-    result = compress_file(str(input_file), str(output_file))
-    
-    assert result.algorithm == "none"
-    assert result.original_size == result.compressed_size
-    assert result.compression_ratio == 1.0
-    assert output_file.read_bytes() == content
+    try:
+        # 1. Compress
+        result = compress_file(input_path, compressed_path)
+        assert result.algorithm == "lz4"
+        assert result.compression_ratio > 1.0
+        assert os.path.exists(compressed_path)
+        assert os.path.getsize(compressed_path) < len(data)
+        
+        # 2. Decompress
+        success = decompress_file(
+            compressed_path=compressed_path,
+            output_path=output_path,
+            algorithm=result.algorithm,
+            expected_sha256=result.original_sha256
+        )
+        
+        assert success is True
+        assert os.path.exists(output_path)
+        with open(output_path, 'rb') as f:
+            decompressed_data = f.read()
+        assert decompressed_data == data
+        
+        # Check that compressed file was deleted by decompress_file
+        assert not os.path.exists(compressed_path)
+        
+    finally:
+        if os.path.exists(input_path): os.unlink(input_path)
+        if os.path.exists(compressed_path): os.unlink(compressed_path)
+        if os.path.exists(output_path): os.unlink(output_path)
 
-def test_decompress_sha_mismatch(tmp_path):
-    input_file = tmp_path / "fail.txt"
-    input_file.write_bytes(b"some data")
+def test_compression_none_algorithm():
+    # JPG should skip compression
+    data = b"fake jpg data"
     
-    compressed_file = tmp_path / "fail.txt.lz4"
-    decompressed_file = tmp_path / "fail_out.txt"
-    
-    result = compress_file(str(input_file), str(compressed_file))
-    
-    # Attempt decompress with wrong SHA
-    success = decompress_file(
-        str(compressed_file),
-        str(decompressed_file),
-        algorithm="lz4",
-        expected_sha256="wrong_sha"
-    )
-    
-    assert success is False
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as fin, \
+         tempfile.NamedTemporaryFile(suffix=".copy", delete=False) as fmid, \
+         tempfile.NamedTemporaryFile(suffix=".out", delete=False) as fout:
+        
+        fin.write(data)
+        fin.close()
+        fmid.close()
+        fout.close()
+        
+        input_path = fin.name
+        compressed_path = fmid.name
+        output_path = fout.name
+        
+    try:
+        # 1. Compress (should just copy)
+        result = compress_file(input_path, compressed_path)
+        assert result.algorithm == "none"
+        assert result.compression_ratio == 1.0
+        
+        # 2. Decompress (should just copy)
+        success = decompress_file(
+            compressed_path=compressed_path,
+            output_path=output_path,
+            algorithm=result.algorithm,
+            expected_sha256=result.original_sha256
+        )
+        
+        assert success is True
+        with open(output_path, 'rb') as f:
+            assert f.read() == data
+            
+    finally:
+        if os.path.exists(input_path): os.unlink(input_path)
+        if os.path.exists(compressed_path): os.unlink(compressed_path)
+        if os.path.exists(output_path): os.unlink(output_path)

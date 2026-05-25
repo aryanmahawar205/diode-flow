@@ -4,7 +4,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from data_diode.sender.m3_merkle import build_merkle_tree, get_merkle_root
+from sender.m3_merkle import build_merkle_tree, get_merkle_root
 
 def print_merkle_tree(tree):
     """

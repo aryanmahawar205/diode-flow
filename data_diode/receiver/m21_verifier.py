@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from data_diode.sender.m3_merkle import _build_merkle_root_from_hashes
+from sender.m3_merkle import _build_merkle_root_from_hashes
 
 logger = logging.getLogger(__name__)
 
