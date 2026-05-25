@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,13 @@ logger = logging.getLogger(__name__)
 class EncodedPacket:
     """One fountain-encoded packet produced by encoder, consumed by decoder."""
     packet_id          : int        # unique within pass — for deduplication in pooler
-    pass_id            : int        # which transmission pass (0 or 1)
-    seed               : int        # PRNG seed used for this pass
-    degree             : int        # number of source chunks XOR'd
-    chunk_ids          : list[int]  # WHICH chunks were XOR'd — decoder reads directly
-    data               : bytes      # XOR'd payload bytes
-    source_chunk_count : int        # K' = original K + RS parity chunks
+    window_id          : int = 0    # which window this belongs to
+    pass_id            : int = 0    # which transmission pass (0 or 1)
+    seed               : int = 0    # PRNG seed used for this pass
+    degree             : int = 0    # number of source chunks XOR'd
+    chunk_ids          : list[int] = field(default_factory=list)  # WHICH chunks were XOR'd — decoder reads directly
+    data               : bytes = b""      # XOR'd payload bytes
+    source_chunk_count : int = 0        # K' = original K + RS parity chunks
 
 
 @dataclass
@@ -48,6 +50,7 @@ class DecodeResult:
     recovered_count : int
     missing_ids     : list[int]           # chunk_ids still missing after decode
     packets_used    : int
+    packets_processed: int = 0            # Number of unique packets used for decoding
 
 
 class IFountainEncoder(ABC):

@@ -9,6 +9,7 @@ import os
 import uuid
 import time
 import gc
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -65,7 +66,6 @@ def run_sender(
 
         # Step 3: Profile & Manifest
         profile = get_profile(compressed_size, criticality)
-        chunk_size = 1300 # Standard safe MTU-friendly size
         manifest = generate_manifest(
             temp_path,
             sender_node_id=sender_node_id,
@@ -76,7 +76,7 @@ def run_sender(
             compress_result=compress_result
         )
         manifest.file_name = os.path.basename(file_path)
-        
+
         # Step 4: Sign Manifest
         if private_key:
             priv_key_obj = import_private_key(private_key)
@@ -98,25 +98,26 @@ def run_sender(
         encoder = get_encoder("lt")
         rs_config = parse_rs_config(profile.rs_config)
 
+        import random # Move import outside loop
         for w in windows:
             t0 = time.time()
-            
+
             # a. Read window
             window_data = get_file_window(Path(temp_path), w)
-            
+
             # b. Chunk -> RS encode -> fountain encode -> interleave
             chunk_res = chunk_window(window_data, chunk_size)
             chunks_with_rs = encode_with_rs(chunk_res.chunks, rs_config)
-            
+
             all_packets_by_pass = []
             for pass_id in range(profile.num_passes):
                 seed = seed_for_pass(manifest.transfer_id, w.window_id, pass_id)
-                
+
                 # Calculate required packets with min floor
                 K_prime_win = len(chunks_with_rs)
                 overhead_packets = math.ceil(K_prime_win * profile.overhead_ratio)
                 total_packets_needed = K_prime_win + overhead_packets
-                
+
                 # ENSURE MINIMUM PACKETS for tiny files (Fountain needs sample size)
                 if total_packets_needed < 20:
                     # Bump overhead ratio for this specific tiny window
@@ -133,10 +134,10 @@ def run_sender(
             transmitted = interleave_encoded_packets(all_packets_by_pass, profile.interleave_depth)
 
             # c. Transmit immediately
-            import random
             for p in transmitted:
                 if loss_rate > 0 and random.random() < loss_rate:
                     continue
+
                 pkt_bytes = serialize_packet(p)
                 transmitter._send_raw(target_addr, pkt_bytes)
 

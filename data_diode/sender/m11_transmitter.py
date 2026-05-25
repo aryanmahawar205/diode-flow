@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TransmitterConfig:
     """Configuration for UDP transmitter."""
-    packets_per_second: int = 50000       # Higher default for modern hardware
+    packets_per_second: int = 10000       # 12 MB/s - safe for Python
     max_packet_size: int = 1472           # MTU - IP/UDP headers
 
 

@@ -228,9 +228,9 @@ def validate_manifest(manifest: TransferManifest) -> list[str]:
         )
 
     # RS parameters
-    if manifest.rs_n <= manifest.rs_k:
+    if manifest.rs_n < manifest.rs_k:
         errors.append(
-            f"rs_n ({manifest.rs_n}) must be > rs_k ({manifest.rs_k})"
+            f"rs_n ({manifest.rs_n}) must be >= rs_k ({manifest.rs_k})"
         )
     if manifest.rs_k <= 0:
         errors.append(f"rs_k must be positive, got {manifest.rs_k}")

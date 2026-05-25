@@ -51,6 +51,12 @@ class Profile:
     """Wrapper for TransferProfile to add compatibility properties."""
     base: TransferProfile
 
+    def __post_init__(self):
+        if not (1 <= self.passes <= 2):              # ← hard cap at 2
+            raise ValueError(f"passes must be 1–2, got {self.passes}")
+        if not (0.10 <= self.overhead_ratio <= 0.30):
+            raise ValueError(f"overhead_ratio out of range: {self.overhead_ratio}")
+
     @property
     def passes(self) -> int: return self.base.num_passes
     @property

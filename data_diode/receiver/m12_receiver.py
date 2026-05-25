@@ -63,30 +63,13 @@ class Receiver:
         logger.info(f"Receiver bound to {self.bind_addr}:{self.actual_port}")
 
     def receive_nonblocking(self) -> Optional[PacketEntry]:
-        """Receive one packet without blocking and route to transfer_id buffer."""
+        """Receive one packet without blocking."""
         if self.socket is None:
             self._bind_socket()
 
         try:
             payload, source_addr = self.socket.recvfrom(self.config.max_packet_size)
-            packet_entry = PacketEntry(payload=payload, source_addr=source_addr)
-            
-            # Route to per-transfer-id buffer
-            try:
-                # Fast-peek at transfer_id without full deserialization
-                # Packet format: version(1B) + length(4B) + json(...)
-                if len(payload) > 5:
-                    length = struct.unpack(">I", payload[1:5])[0]
-                    if len(payload) >= 5 + length:
-                        json_bytes = payload[5:5+length]
-                        d = json.loads(json_bytes.decode("utf-8"))
-                        tid = d.get("transfer_id")
-                        if tid:
-                            self.transfer_buffers[tid].append(packet_entry)
-            except Exception:
-                pass # Silently fail routing, return raw packet anyway
-
-            return packet_entry
+            return PacketEntry(payload=payload, source_addr=source_addr)
         except (BlockingIOError, socket.timeout):
             return None
         except OSError as e:

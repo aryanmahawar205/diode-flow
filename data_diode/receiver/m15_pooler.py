@@ -56,8 +56,8 @@ class PacketPool:
     def is_ready_to_decode(self, transfer_id: str, window_id: int, K_prime: int) -> bool:
         """Check if a window pool is ready for decoding."""
         count = self.get_packet_count(transfer_id, window_id)
-        # Use 1.1x threshold + at least 2 extra packets to avoid premature decode on tiny windows
-        if count >= max(int(K_prime * 1.10), K_prime + 2):
+        # Use 1.05x threshold + at least 2 extra packets
+        if count >= max(int(K_prime * 1.05), K_prime + 2):
             return True
         
         if count == 0:

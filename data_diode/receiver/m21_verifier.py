@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
-from sender.m3_merkle import _build_merkle_root_from_hashes
+from sender.m3_merkle import compute_merkle_root_from_hashes
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class FileVerifier:
             return False
             
         try:
-            computed_root = _build_merkle_root_from_hashes(window_merkle_roots)
+            computed_root = compute_merkle_root_from_hashes(window_merkle_roots)
             if hmac.compare_digest(computed_root, expected_root):
                 logger.info(f"Global Merkle root match: {computed_root[:16]}...")
                 return True

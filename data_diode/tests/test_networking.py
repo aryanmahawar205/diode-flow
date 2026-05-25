@@ -76,6 +76,7 @@ class TestPacketPool:
         pool = PacketPool()
         packet = EncodedPacket(
             packet_id=0,
+            window_id=0,
             pass_id=0,
             seed=123,
             degree=5,
@@ -93,6 +94,7 @@ class TestPacketPool:
         pool = PacketPool()
         packet = EncodedPacket(
             packet_id=0,
+            window_id=0,
             pass_id=0,
             seed=123,
             degree=5,
@@ -115,8 +117,8 @@ class TestPacketPool:
     def test_pool_get_unified_pool(self):
         """Retrieve packets from pool."""
         pool = PacketPool()
-        packet1 = EncodedPacket(0, 0, 123, 1, [0], b"p1", 10)
-        packet2 = EncodedPacket(1, 0, 123, 1, [1], b"p2", 10)
+        packet1 = EncodedPacket(0, 0, 0, 123, 1, [0], b"p1", 10)
+        packet2 = EncodedPacket(1, 0, 0, 123, 1, [1], b"p2", 10)
 
         pool.add_packet("tx1", 0, packet1)
         pool.add_packet("tx1", 0, packet2)
@@ -127,7 +129,7 @@ class TestPacketPool:
     def test_pool_clear_transfer(self):
         """Clear all state for a transfer."""
         pool = PacketPool()
-        packet = EncodedPacket(0, 0, 123, 1, [0], b"p1", 10)
+        packet = EncodedPacket(0, 0, 0, 123, 1, [0], b"p1", 10)
 
         pool.add_packet("tx1", 0, packet)
         pool.add_packet("tx1", 1, packet)
