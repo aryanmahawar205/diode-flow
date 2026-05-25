@@ -1,0 +1,12 @@
+{
+  "transfer_id": "1f13becc-e54e-4a2b-b4a4-776f5b70e463",
+  "file_name": "tmpoepmtd0s",
+  "original_sha256": "555812d3df91c5390f2211d729e58eb2005369934ac2ba69eb42913f897f7a7e",
+  "received_at": 1779721774.6881802,
+  "sender_node_id": "sender-001",
+  "classification": "standard",
+  "compression": "lz4",
+  "original_size_bytes": 12000,
+  "windows": 1,
+  "packets": 3
+}

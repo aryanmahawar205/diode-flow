@@ -1,0 +1,12 @@
+{
+  "transfer_id": "76228787-29a4-41a8-9a73-da562a947da5",
+  "file_name": "tmp_mfg62uc",
+  "original_sha256": "a5fc41afb0e65ea7744e7e1bec04ff87268e4608c7952f9cb4eaa59edff66efc",
+  "received_at": 1779724017.5821464,
+  "sender_node_id": "sender-001",
+  "classification": "standard",
+  "compression": "lz4",
+  "original_size_bytes": 5000000,
+  "windows": 1,
+  "packets": 32
+}
