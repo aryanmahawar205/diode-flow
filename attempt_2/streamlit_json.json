@@ -1,0 +1,39 @@
+{
+  "transfer_id": "abc12345",
+  "file_name": "report.txt",
+  "overall_state": "RECEIVING",
+  "last_updated": 1718000000.0,
+
+  "sender": {
+    "status": "sending",
+    "file_path": "test_files/report.txt",
+    "original_size_mb": 30.0,
+    "compressed_size_mb": 8.1,
+    "compression_ratio": 3.7,
+    "compression_algorithm": "lz4",
+    "criticality": "standard",
+    "total_windows": 4,
+    "windows_sent": 2,
+    "total_packets_sent": 12400,
+    "bytes_transmitted_mb": 14.9,
+    "packets_per_second": 10000,
+    "elapsed_s": 12.4,
+    "eta_str": "1.2min"
+  },
+
+  "receiver": {
+    "status": "receiving",
+    "total_windows": 4,
+    "windows_decoded": 1,
+    "total_packets_rx": 9800,
+    "fountain_recovered_chunks": 740,
+    "rs_recovered_chunks": 6,
+    "failed_chunks": 0,
+    "sha256_match": null,
+    "storage_path": null,
+    "elapsed_s": 13.1
+  },
+
+  "warnings": ["Window 2: RS recovery triggered (6 chunks)"],
+  "errors": []
+}
