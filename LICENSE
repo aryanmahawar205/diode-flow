@@ -20,4 +20,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-  To resume this session: gemini --resume 44bff329-b1ac-4f40-87d6-99e098a9fb0f     
+To resume this session: gemini --resume 44bff329-b1ac-4f40-87d6-99e098a9fb0f
+To resume this session: gemini --resume aa829c3a-a28f-4524-983b-24ef526321df
