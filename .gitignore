@@ -1,16 +1,43 @@
-# Byte-compiled / optimized / DLL files
+# =========================
+# Python basics
+# =========================
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
-*.so
-*.pyd
-*.dll
-*.dylib
+# =========================
+# Virtual environments
+# =========================
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Distribution / packaging
-.Python
+# =========================
+# Large test data / datasets (IMPORTANT FOR YOU)
+# =========================
+test_files/
+attempt_2/demo_output/
+attempt_2/test_files/
+data/
+datasets/
+*.bin
+*.dat
+*.img
+*.iso
+*.dump
+
+# very large generic files (careful but useful in your case)
+*.log
+*.tmp
+*.temp
+
+# =========================
+# Build / packaging
+# =========================
 build/
 dist/
 downloads/
@@ -23,26 +50,14 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
-# Virtual environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
+# =========================
+# Test / coverage
+# =========================
 htmlcov/
 .tox/
 .nox/
@@ -53,52 +68,46 @@ pytest_cache/
 nosetests.xml
 coverage.xml
 *.cover
-*.py,cover
 .hypothesis/
 
-# Type checkers / linters
-.mypy_cache/
-.pyre/
-.pytype/
-.ruff_cache/
-
-# Jupyter Notebook
+# =========================
+# Jupyter
+# =========================
 .ipynb_checkpoints
 
-# PyInstaller
-*.manifest
-*.spec
-
-# IDEs and editors
+# =========================
+# IDEs
+# =========================
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs
-*.log
-
-# macOS / Linux / Windows system files
+# =========================
+# OS files
+# =========================
 .DS_Store
 Thumbs.db
 
-# Debugger / profiling files
-*.pdb
-*.dwo
+# =========================
+# Logs / debug
+# =========================
+*.log
+*.out
+*.err
 
-# Compiled binaries / objects
+# =========================
+# Compiled binaries
+# =========================
 *.o
 *.obj
-*.a
-*.lib
+*.so
 *.exe
-*.out
-*.app
+*.dll
+*.dylib
 
-# Temporary files
-*.tmp
-*.temp
-
-# Environment variables
+# =========================
+# Environment files
+# =========================
 .env.*
 !.env.example
