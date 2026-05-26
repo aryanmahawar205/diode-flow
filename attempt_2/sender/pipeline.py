@@ -9,6 +9,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from common import state_writer
 from common.config import DEFAULT_CHUNK_SIZE, QUARANTINE_DIR
 from common.models import TransferProgress
 from sender.m0_compress import compress_file
@@ -56,16 +57,42 @@ def run_sender(file_path: str, remote_addr: tuple,
     n_windows  = len(windows)
 
     # Step 4: Manifest
-    manifest       = generate_manifest(compressed_path, compress_result,
+    original_file_name = os.path.basename(file_path)
+    manifest       = generate_manifest(original_file_name, compressed_path, compress_result,
                                        n_windows, win_size, profile, criticality)
     manifest_bytes = serialize_manifest(manifest)
 
+    # MONITORING
+    state_writer.init_state(
+        transfer_id=manifest.transfer_id,
+        file_name=original_file_name,
+        total_windows=n_windows,
+        criticality=criticality,
+        file_path=file_path,
+        original_size_mb=file_size / 1024**2,
+        compression_algorithm=compress_result.algorithm,
+    )
+    state_writer.update_sender(
+        windows_sent=0,
+        total_packets_sent=0,
+        bytes_transmitted_mb=0,
+        compressed_size_mb=compress_result.compressed_size / 1024**2,
+        compression_ratio=compress_result.compression_ratio,
+        elapsed_s=0,
+        eta_str="calculating...",
+        status="sending",
+    )
+
     # Step 5: Transmitter
     tx = Transmitter(packets_per_second)
+    total_packets_sent = 0
+    total_bytes_sent = 0
 
     # Step 6: Send manifest
     for _ in range(profile.header_redundancy):
         tx.send_raw(remote_addr, manifest_bytes)
+        total_packets_sent += 1
+        total_bytes_sent += len(manifest_bytes)
     logger.info(f"Manifest sent ×{profile.header_redundancy}")
 
     # Step 7: Process and send windows ONE AT A TIME
@@ -107,6 +134,8 @@ def run_sender(file_path: str, remote_addr: tuple,
                                         SHARED_KEY)
             pkt_bytes = serialize_packet(pkt_dict)
             tx.send_raw(remote_addr, pkt_bytes)
+            total_packets_sent += 1
+            total_bytes_sent += len(pkt_bytes)
 
         # FREE MEMORY — critical for GB scale
         del window_data, chunk_result, chunks_with_parity
@@ -119,13 +148,40 @@ def run_sender(file_path: str, remote_addr: tuple,
                     f"({progress.pct:.1f}%) sent in {elapsed:.1f}s "
                     f"| ETA: {progress.eta_str}")
 
+        # MONITORING
+        state_writer.update_sender(
+            windows_sent=progress.completed_windows,
+            total_packets_sent=total_packets_sent,
+            bytes_transmitted_mb=total_bytes_sent / 1024**2,
+            compressed_size_mb=compress_result.compressed_size / 1024**2,
+            compression_ratio=compress_result.compression_ratio,
+            elapsed_s=time.time() - t_start,
+            eta_str=progress.eta_str,
+            status="sending",
+        )
+
     # Footer
     footer = b"DIODE_TRANSFER_END"
     for _ in range(3):
         tx.send_raw(remote_addr, footer)
+        total_packets_sent += 1
+        total_bytes_sent += len(footer)
 
     tx.close()
     os.remove(compressed_path)
+
+    # MONITORING
+    state_writer.update_sender(
+        windows_sent=progress.completed_windows,
+        total_packets_sent=total_packets_sent,
+        bytes_transmitted_mb=total_bytes_sent / 1024**2,
+        compressed_size_mb=compress_result.compressed_size / 1024**2,
+        compression_ratio=compress_result.compression_ratio,
+        elapsed_s=time.time() - t_start,
+        eta_str="done",
+        status="done",
+    )
+    state_writer.set_overall_state("VERIFYING")
 
     total = time.time() - t_start
     logger.info(f"=== SENDER DONE: {total:.1f}s total ===")

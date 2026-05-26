@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_manifest(
+    original_file_name   : str,
     compressed_path     : str,
     compress_result     : CompressionResult,
     total_windows       : int,
@@ -36,8 +37,7 @@ def generate_manifest(
         transfer_id           = str(uuid.uuid4()),
         sender_node_id        = sender_node_id,
         protocol_version      = PROTOCOL_VERSION,
-        file_name             = os.path.basename(compress_result.compressed_path)
-                                    .replace(".lz4",""),
+        file_name             = original_file_name,
         file_size             = compressed_size,
         file_sha256           = compress_result.compressed_sha256,
         original_size         = compress_result.original_size,

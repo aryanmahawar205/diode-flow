@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from common import state_writer
 from common.config import (DEFAULT_PORT, DEFAULT_ADDRESS, QUARANTINE_DIR,
                             STORAGE_DIR, WINDOWS_TMP, DEFAULT_CHUNK_SIZE)
 from common.models import TransferManifest, TransferProgress
@@ -54,98 +55,122 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
     last_packet  = time.time()
     t_start      = time.time()
 
+    # Track stats for monitoring
+    m_stats = {
+        "fountain_recovered": 0,
+        "rs_recovered": 0,
+        "failed_chunks": 0
+    }
+
     logger.info(f"Receiver listening on {bind_addr}:{port}")
 
-    while True:
-        # Global timeout
-        if time.time() - t_start > timeout_s:
-            logger.error(f"Global timeout after {timeout_s}s")
-            return False
+    try:
+        while True:
+            # Global timeout
+            if time.time() - t_start > timeout_s:
+                msg = f"Global timeout after {timeout_s}s"
+                logger.error(msg)
+                state_writer.add_error(msg)
+                state_writer.set_overall_state("FAILED")
+                return False
 
-        raw = recv.recv_one()
-        if raw is None:
-            # Check for window timeouts if we have a manifest
-            if manifest and time.time() - last_packet > 30:
-                _check_decode_ready(manifest, pooler, fdec, window_files,
-                                    window_padding, window_data_chunks, progress, force=True)
-            continue
-
-        last_packet = time.time()
-
-        # Try manifest first
-        if manifest is None:
-            m = deserialize_manifest(raw)
-            if m is not None:
-                ok, reason = validate_manifest(m)
-                if not ok:
-                    logger.warning(f"Manifest rejected: {reason}")
-                    continue
-                manifest  = m
-                record    = TransferRecord(m.transfer_id)
-                progress  = TransferProgress(m.transfer_id, m.file_name,
-                                             m.total_windows)
-                logger.info(f"Transfer started: {m.file_name} "
-                            f"({m.file_size/1024**2:.1f}MB compressed, "
-                            f"{m.total_windows} windows)")
+            raw = recv.recv_one()
+            if raw is None:
+                # Check for window timeouts if we have a manifest
+                if manifest and time.time() - last_packet > 30:
+                    _check_decode_ready(manifest, pooler, fdec, window_files,
+                                        window_padding, window_data_chunks, progress, m_stats, t_start, force=True)
                 continue
 
-        # Try packet
-        pkt_dict = deserialize_packet(raw)
-        if pkt_dict is None:
-            continue
+            last_packet = time.time()
 
-        ok, reason = validate_packet_dict(pkt_dict, manifest, t_start)
-        if not ok:
-            continue
+            # Try manifest first
+            if manifest is None:
+                m = deserialize_manifest(raw)
+                if m is not None:
+                    ok, reason = validate_manifest(m)
+                    if not ok:
+                        logger.warning(f"Manifest rejected: {reason}")
+                        continue
+                    manifest  = m
+                    record    = TransferRecord(m.transfer_id)
+                    progress  = TransferProgress(m.transfer_id, m.file_name,
+                                                 m.total_windows)
+                    state_writer.set_overall_state("RECEIVING")
+                    logger.info(f"Transfer started: {m.file_name} "
+                                f"({m.file_size/1024**2:.1f}MB compressed, "
+                                f"{m.total_windows} windows)")
+                    continue
 
-        # Reconstruct EncodedPacket
-        try:
-            pkt = EncodedPacket(
-                packet_id          = pkt_dict["packet_id"],
-                pass_id            = pkt_dict["pass_id"],
-                seed               = pkt_dict["seed"],
-                degree             = pkt_dict["degree"],
-                chunk_ids          = pkt_dict["chunk_ids"],
-                data               = bytes.fromhex(pkt_dict["data"]),
-                source_chunk_count = pkt_dict["K_prime"],
-            )
-        except (KeyError, ValueError):
-            continue
+            # Try packet
+            pkt_dict = deserialize_packet(raw)
+            if pkt_dict is None:
+                continue
 
-        pooler.add(manifest.transfer_id, pkt_dict["window_id"], pkt)
-        window_padding[pkt_dict["window_id"]] = pkt_dict["padding_length"]
-        window_data_chunks[pkt_dict["window_id"]] = pkt_dict["data_chunk_count"]
-        if progress:
-            progress.total_packets_rx += 1
+            ok, reason = validate_packet_dict(pkt_dict, manifest, t_start)
+            if not ok:
+                continue
 
-        # Check decode readiness for this window
-        wid     = pkt_dict["window_id"]
-        K_prime = pkt.source_chunk_count
+            # Reconstruct EncodedPacket
+            try:
+                pkt = EncodedPacket(
+                    packet_id          = pkt_dict["packet_id"],
+                    pass_id            = pkt_dict["pass_id"],
+                    seed               = pkt_dict["seed"],
+                    degree             = pkt_dict["degree"],
+                    chunk_ids          = pkt_dict["chunk_ids"],
+                    data               = bytes.fromhex(pkt_dict["data"]),
+                    source_chunk_count = pkt_dict["K_prime"],
+                )
+            except (KeyError, ValueError):
+                continue
 
-        if pooler.is_ready(manifest.transfer_id, wid, K_prime):
-            _decode_and_store(manifest, wid, K_prime, pooler, fdec,
-                              window_files, window_padding, window_data_chunks, progress)
+            pooler.add(manifest.transfer_id, pkt_dict["window_id"], pkt)
+            window_padding[pkt_dict["window_id"]] = pkt_dict["padding_length"]
+            window_data_chunks[pkt_dict["window_id"]] = pkt_dict["data_chunk_count"]
+            if progress:
+                progress.total_packets_rx += 1
 
-        # Check if all windows done
-        done = len([p for p in window_files.values() if p is not None])
-        if manifest and done == manifest.total_windows:
-            return _finish(manifest, window_files, storage_dir, progress, record)
+            # Check decode readiness for this window
+            wid     = pkt_dict["window_id"]
+            K_prime = pkt.source_chunk_count
 
-    recv.close()
-    return False
+            if pooler.is_ready(manifest.transfer_id, wid, K_prime):
+                _decode_and_store(manifest, wid, K_prime, pooler, fdec,
+                                  window_files, window_padding, window_data_chunks, progress, m_stats, t_start)
+
+            # Check if all windows done
+            done = len([p for p in window_files.values() if p is not None])
+            if manifest and done == manifest.total_windows:
+                return _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_start)
+    except Exception as e:
+        msg = f"Fatal receiver error: {e}"
+        logger.error(msg)
+        state_writer.add_error(msg)
+        state_writer.set_overall_state("FAILED")
+        return False
+    finally:
+        recv.close()
 
 
 def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
-                       window_files, window_padding, window_data_chunks, progress):
+                       window_files, window_padding, window_data_chunks, progress, m_stats, t_start):
     """Decode one window, verify, write to disk, free RAM."""
     if wid in window_files:
         return   # already done
 
     pool   = pooler.get_pool(manifest.transfer_id, wid)
     result = fdec.decode(pool, K_prime, manifest.chunk_size)
+    m_stats["fountain_recovered"] += result.recovered_count
 
     # RS recovery
+    missing_before_rs = sum(1 for c in result.chunks if c is None)
+    if missing_before_rs > 0:
+        state_writer.add_warning(f"Window {wid}: RS recovery triggered ({missing_before_rs} chunks)")
+
     recovered = rs_recover(result.chunks, manifest, manifest.chunk_size)
+    missing_after_rs = sum(1 for c in recovered if c is None)
+    m_stats["rs_recovered"] += (missing_before_rs - missing_after_rs)
 
     # Merkle verify (simple hash check)
     from sender.m4_merkle import build_tree
@@ -162,6 +187,9 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
     data_count    = window_data_chunks.get(wid, K_prime - parity_count)
     padding       = window_padding.get(wid, 0)
 
+    # Track failed chunks (in data area only)
+    m_stats["failed_chunks"] += sum(1 for c in recovered[:data_count] if c is None)
+
     path = write_window(wid, recovered, padding, data_count,
                         manifest.chunk_size, Path(WINDOWS_TMP))
 
@@ -174,11 +202,22 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
             progress.completed_windows += 1
             progress.log(logger)
         pooler.clear_window(manifest.transfer_id, wid)
+        
+        # MONITORING
+        state_writer.update_receiver(
+            windows_decoded=progress.completed_windows,
+            total_packets_rx=progress.total_packets_rx,
+            fountain_recovered_chunks=m_stats["fountain_recovered"],
+            rs_recovered_chunks=m_stats["rs_recovered"],
+            failed_chunks=m_stats["failed_chunks"],
+            elapsed_s=time.time() - t_start,
+            status="decoding",
+        )
     
     del pool, result, recovered
 
 
-def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, window_data_chunks, progress,
+def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, window_data_chunks, progress, m_stats, t_start,
                          force=False):
     """Check all windows that might be ready to decode."""
     for wid in range(manifest.total_windows):
@@ -187,15 +226,29 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
         K_prime = manifest.total_chunks // manifest.total_windows + manifest.rs_k
         if force or pooler.is_ready(manifest.transfer_id, wid, K_prime):
             _decode_and_store(manifest, wid, K_prime, pooler, fdec,
-                              window_files, window_padding, window_data_chunks, progress)
+                              window_files, window_padding, window_data_chunks, progress, m_stats, t_start)
 
 
-def _finish(manifest, window_files, storage_dir, progress, record) -> bool:
+def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_start) -> bool:
     """Assemble windows → verify → decompress → store."""
     logger.info("All windows received — assembling file")
+    
+    state_writer.set_overall_state("VERIFYING")
+    state_writer.update_receiver(
+        windows_decoded=progress.completed_windows,
+        total_packets_rx=progress.total_packets_rx,
+        fountain_recovered_chunks=m_stats["fountain_recovered"],
+        rs_recovered_chunks=m_stats["rs_recovered"],
+        failed_chunks=m_stats["failed_chunks"],
+        elapsed_s=time.time() - t_start,
+        status="verifying",
+    )
 
     if any(p is None for p in window_files.values()):
-        logger.error("Some windows failed — transfer incomplete")
+        msg = "Some windows failed — transfer incomplete"
+        logger.error(msg)
+        state_writer.add_error(msg)
+        state_writer.set_overall_state("FAILED")
         return False
 
     # Assemble compressed file
@@ -203,10 +256,16 @@ def _finish(manifest, window_files, storage_dir, progress, record) -> bool:
     ok = assemble(window_files, manifest.total_windows,
                   compressed_out, manifest.file_sha256)
     if not ok:
+        msg = "File assembly failed"
+        state_writer.add_error(msg)
+        state_writer.set_overall_state("FAILED")
         return False
 
     # Verify compressed file
     if not verify_file(compressed_out, manifest):
+        msg = "Compressed file verification failed"
+        state_writer.add_error(msg)
+        state_writer.set_overall_state("FAILED")
         return False
 
     # Decompress
@@ -214,12 +273,33 @@ def _finish(manifest, window_files, storage_dir, progress, record) -> bool:
     ok = decompress(compressed_out, final_out,
                     manifest.compression_algorithm, manifest.original_sha256)
     if not ok:
+        msg = "Decompression failed"
+        state_writer.add_error(msg)
+        state_writer.set_overall_state("FAILED")
         return False
 
     # Store
     stats = {"windows": manifest.total_windows,
              "packets": progress.total_packets_rx if progress else 0}
-    store(final_out, storage_dir, manifest, stats)
+    if store(final_out, storage_dir, manifest, stats):
+        dest = Path(storage_dir) / manifest.file_name
+        state_writer.update_receiver(
+            windows_decoded=progress.completed_windows,
+            total_packets_rx=progress.total_packets_rx,
+            fountain_recovered_chunks=m_stats["fountain_recovered"],
+            rs_recovered_chunks=m_stats["rs_recovered"],
+            failed_chunks=m_stats["failed_chunks"],
+            elapsed_s=time.time() - t_start,
+            status="accepted",
+            sha256_match=True,
+            storage_path=dest
+        )
+        state_writer.set_overall_state("ACCEPTED")
+    else:
+        msg = "Storage failed"
+        state_writer.add_error(msg)
+        state_writer.set_overall_state("FAILED")
+        return False
 
     total_time = time.time() - (progress.start_time if progress else time.time())
     logger.info(f"=== TRANSFER COMPLETE: {manifest.file_name} "

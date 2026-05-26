@@ -1,3 +1,34 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b5be4c9247b8595fd360e377272ecf77477561615b1f2bf60be2234f787eda7d
-size 548
+# Core numerics — CRITICAL for XOR performance (100x faster than pure Python)
+numpy>=1.26.0
+
+# Fountain code math
+# (no external library — implemented from scratch in fountain/)
+
+# Reed-Solomon erasure coding
+reedsolo>=1.7.0
+
+# CRC32C hardware-accelerated checksum
+crcmod>=1.7
+
+# Compression
+lz4>=4.3.2
+
+# Cryptography (Ed25519 + HMAC)
+cryptography>=42.0.0
+
+# BLAKE3 fast MAC
+blake3>=0.4.0
+
+# Serialization
+protobuf>=4.25.0
+
+# Memory monitoring
+psutil>=5.9.0
+
+# Testing
+pytest>=8.0.0
+pytest-cov>=4.0.0
+pytest-timeout>=2.2.0
+
+# UI
+streamlit>=1.35.0

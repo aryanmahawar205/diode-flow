@@ -2,6 +2,11 @@
 Main demo entry point.
 Launches sender and receiver as two separate processes.
 The receiver process NEVER communicates back to the sender.
+
+# Run the UI separately:
+#   streamlit run ui/streamlit_app.py
+# Then run this script:
+#   python run_demo.py --file test_files/small.txt
 """
 from __future__ import annotations
 import argparse
@@ -11,6 +16,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from common import state_writer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +42,9 @@ def _sender_proc(file_path, addr, port, criticality, pps):
 def transfer(file_path: str, criticality: str = "standard",
              addr: str = "127.0.0.1", port: int = 20000,
              pps: int = 10000, timeout: int = 600) -> bool:
+
+    # MONITORING RESET
+    state_writer.clear_state()
 
     storage = "demo_output/storage"
     Path(storage).mkdir(parents=True, exist_ok=True)
