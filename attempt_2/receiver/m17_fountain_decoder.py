@@ -6,13 +6,14 @@ Cross-pass recovery only works when all packets are in ONE Tanner graph.
 from __future__ import annotations
 import logging
 from common.models import EncodedPacket, DecodeResult
+from common.config import MAX_DEGREE
 from fountain.interface import get_decoder
 
 logger = logging.getLogger(__name__)
 
 
 class FountainDecoder:
-    def __init__(self, codec: str = "lt", max_degree: int = 50):
+    def __init__(self, codec: str = "lt", max_degree: int = MAX_DEGREE):
         self._decoder    = get_decoder(codec)
         self._max_degree = max_degree
 

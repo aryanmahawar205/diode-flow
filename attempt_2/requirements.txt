@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:000ede8547c0f369005a636864a2f1dec47fb6b4bd48860131394af6d268a6c7
-size 552
+numpy>=1.26.0
+reedsolo>=1.7.0
+crcmod>=1.7
+lz4>=4.3.2
+cryptography>=42.0.0
+blake3>=0.4.0
+protobuf>=4.25.0
+psutil>=5.9.0
+pytest>=8.0.0
+pytest-cov>=4.0.0
+pytest-timeout>=2.2.0
+streamlit
