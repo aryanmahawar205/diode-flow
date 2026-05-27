@@ -16,7 +16,7 @@ MAX_K_TOTAL            = 10_000_000
 MAX_TRANSFER_SIZE      = 100 * 1024**3   # 100 GB
 MAX_PASSES             = 2               # never 3
 MAX_WINDOWS            = 50_000
-MAX_DEGREE             = 50              # fountain packet degree cap
+MAX_DEGREE             = 1024            # fountain packet degree cap
 MAX_RS_PARITY          = 128
 
 # Timeouts
@@ -48,22 +48,22 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
         rs_n=40, rs_k=8, interleave_depth=4, header_redundancy=5,
         window_size_bytes=16*1024*1024),
     ("medium", "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.30,
-        rs_n=0, rs_k=0, interleave_depth=3, header_redundancy=3,
+        rs_n=36, rs_k=4, interleave_depth=3, header_redundancy=3,
         window_size_bytes=64*1024*1024),
     ("medium", "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.30,
-        rs_n=0, rs_k=0, interleave_depth=4, header_redundancy=5,
+        rs_n=38, rs_k=6, interleave_depth=4, header_redundancy=5,
         window_size_bytes=64*1024*1024),
     ("medium", "classified"): TransferProfile(num_passes=2, overhead_ratio=0.35,
-        rs_n=0, rs_k=0, interleave_depth=5, header_redundancy=5,
+        rs_n=40, rs_k=8, interleave_depth=5, header_redundancy=5,
         window_size_bytes=64*1024*1024),
     ("large",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.20,
-        rs_n=0, rs_k=0, interleave_depth=4, header_redundancy=3,
+        rs_n=68, rs_k=4, interleave_depth=4, header_redundancy=3,
         window_size_bytes=128*1024*1024),
     ("large",  "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.20,
-        rs_n=0, rs_k=0, interleave_depth=6, header_redundancy=5,
+        rs_n=70, rs_k=6, interleave_depth=6, header_redundancy=5,
         window_size_bytes=128*1024*1024),
     ("large",  "classified"): TransferProfile(num_passes=2, overhead_ratio=0.25,
-        rs_n=0, rs_k=0, interleave_depth=8, header_redundancy=5,
+        rs_n=72, rs_k=8, interleave_depth=8, header_redundancy=5,
         window_size_bytes=128*1024*1024),
 }
 
