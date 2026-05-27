@@ -50,10 +50,12 @@ def encode_rs(chunks: list[bytes], config: RSConfig) -> list[bytes]:
         
         # This loop is the bottleneck in pure Python
         for j in range(chunk_size):
+            # Take a vertical slice (one byte from every chunk in the block)
             codeword = data_arr[:, j].tobytes()
-            ecc = codec.encode(codeword)[actual_block_size:]
-            for p in range(parity_count):
-                parity_arr[p, j] = ecc[p]
+            # Encode that byte-slice to get its ecc bytes
+            ecc_bytes = codec.encode(codeword)[actual_block_size:]
+            # Store the resulting ecc bytes vertically in the parity array
+            parity_arr[:, j] = np.frombuffer(ecc_bytes, dtype=np.uint8)
         
         for p in range(parity_count):
             all_parity_chunks.append(parity_arr[p].tobytes())
@@ -134,9 +136,9 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
         if len(all_erasures) > parity_count:
             spam_count += 1
             if spam_count <= 5:
-                logger.warning(f"Too many erasures in block {b}: {len(all_erasures)} > {parity_count}")
+                logger.debug(f"Too many erasures in block {b}: {len(all_erasures)} > {parity_count}")
             elif spam_count == 6:
-                logger.warning("RS: Further warnings suppressed for this window...")
+                logger.debug("RS: Further warnings suppressed for this window...")
             continue
             
         # Try to recover
@@ -148,23 +150,14 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
             data_arr = np.frombuffer(b"".join(filled_data), dtype=np.uint8).reshape(len(block_data), chunk_size)
             parity_arr = np.frombuffer(b"".join(filled_parity), dtype=np.uint8).reshape(len(block_parity), chunk_size)
             
-            for j in range(chunk_size):
-                codeword = np.concatenate([data_arr[:, j], parity_arr[:, j]]).tobytes()
-                # reedsolo.decode returns the data part only
-                decoded = codec.decode(codeword, erase_pos=all_erasures)[0]
-                # decoded is just the data part (len = len(block_data))
-                for idx in erasures:
-                    if recovered[d_start + idx] is None:
-                        # We need to build the chunk byte by byte? Slow!
-                        # Better to do it outside the loop.
-                        pass
-            
-            # Optimized recovery
+            # Optimized recovery: only one loop over chunk_size
             new_data_arr = np.zeros((len(block_data), chunk_size), dtype=np.uint8)
             for j in range(chunk_size):
                 codeword = np.concatenate([data_arr[:, j], parity_arr[:, j]]).tobytes()
-                decoded = codec.decode(codeword, erase_pos=all_erasures)[0]
-                new_data_arr[:, j] = np.frombuffer(decoded, dtype=np.uint8)
+                # reedsolo.decode returns (decoded_msg, decoded_msgecc, erasures_count)
+                decoded_msg_tuple = codec.decode(codeword, erase_pos=all_erasures)
+                decoded_data = decoded_msg_tuple[0]
+                new_data_arr[:, j] = np.frombuffer(decoded_data, dtype=np.uint8)
             
             for idx in erasures:
                 recovered[d_start + idx] = new_data_arr[idx].tobytes()

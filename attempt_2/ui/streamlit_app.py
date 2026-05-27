@@ -101,7 +101,7 @@ else:
         m1, m2 = st.columns(2)
         m3, m4 = st.columns(2)
         
-        orig_size = s.get("original_size_mb", 0)
+        orig_size = state.get("original_size_mb", 0)
         comp_size = s.get("compressed_size_mb", 0)
         ratio = s.get("compression_ratio", 1.0)
         
