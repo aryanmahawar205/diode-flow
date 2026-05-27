@@ -223,7 +223,23 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
     for wid in range(manifest.total_windows):
         if wid in window_files:
             continue
-        K_prime = manifest.total_chunks // manifest.total_windows + manifest.rs_k
+
+        # Calculate expected data chunks for this window
+        if wid < manifest.total_windows - 1:
+            win_data_chunks = manifest.window_size_bytes // manifest.chunk_size
+        else:
+            win_data_chunks = manifest.total_chunks - (manifest.total_windows - 1) * (manifest.window_size_bytes // manifest.chunk_size)
+
+        # Each block of RS_DATA_PER_BLOCK chunks gets manifest.rs_k parity chunks
+        rs_data_per_block = manifest.rs_n - manifest.rs_k
+        if rs_data_per_block > 0:
+            num_blocks = (win_data_chunks + rs_data_per_block - 1) // rs_data_per_block
+            win_rs_chunks = num_blocks * manifest.rs_k
+        else:
+            win_rs_chunks = 0
+
+        K_prime = win_data_chunks + win_rs_chunks
+
         if force or pooler.is_ready(manifest.transfer_id, wid, K_prime):
             _decode_and_store(manifest, wid, K_prime, pooler, fdec,
                               window_files, window_padding, window_data_chunks, progress, m_stats, t_start)
