@@ -235,6 +235,10 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
         if wid in window_files:
             continue
 
+        # Don't try to decode windows that have no packets yet
+        if pooler.count(manifest.transfer_id, wid) == 0:
+            continue
+
         # Calculate expected data chunks for this window
         if wid < manifest.total_windows - 1:
             win_data_chunks = manifest.window_size_bytes // manifest.chunk_size

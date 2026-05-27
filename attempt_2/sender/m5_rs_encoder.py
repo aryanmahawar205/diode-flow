@@ -50,10 +50,12 @@ def encode_rs(chunks: list[bytes], config: RSConfig) -> list[bytes]:
         
         # This loop is the bottleneck in pure Python
         for j in range(chunk_size):
+            # Take a vertical slice (one byte from every chunk in the block)
             codeword = data_arr[:, j].tobytes()
-            ecc = codec.encode(codeword)[actual_block_size:]
-            for p in range(parity_count):
-                parity_arr[p, j] = ecc[p]
+            # Encode that byte-slice to get its ecc bytes
+            ecc_bytes = codec.encode(codeword)[actual_block_size:]
+            # Store the resulting ecc bytes vertically in the parity array
+            parity_arr[:, j] = np.frombuffer(ecc_bytes, dtype=np.uint8)
         
         for p in range(parity_count):
             all_parity_chunks.append(parity_arr[p].tobytes())
@@ -153,7 +155,8 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
             for j in range(chunk_size):
                 codeword = np.concatenate([data_arr[:, j], parity_arr[:, j]]).tobytes()
                 # reedsolo.decode returns (decoded_msg, decoded_msgecc, erasures_count)
-                decoded_data = codec.decode(codeword, erase_pos=all_erasures)[0]
+                decoded_msg_tuple = codec.decode(codeword, erase_pos=all_erasures)
+                decoded_data = decoded_msg_tuple[0]
                 new_data_arr[:, j] = np.frombuffer(decoded_data, dtype=np.uint8)
             
             for idx in erasures:

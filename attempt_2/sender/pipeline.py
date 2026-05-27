@@ -111,6 +111,16 @@ def run_sender(file_path: str, remote_addr: tuple,
                                        chunk_id_offset)
 
         # RS encode
+        state_writer.update_sender(
+            windows_sent=progress.completed_windows,
+            total_packets_sent=total_packets_sent,
+            bytes_transmitted_mb=total_bytes_sent / 1024**2,
+            compressed_size_mb=compress_result.compressed_size / 1024**2,
+            compression_ratio=compress_result.compression_ratio,
+            elapsed_s=time.time() - t_start,
+            eta_str=progress.eta_str,
+            status="encoding_rs",
+        )
         chunks_with_parity = encode_rs(chunk_result.chunks, rs_config)
 
         # Fountain encode (all passes)
