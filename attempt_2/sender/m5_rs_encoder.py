@@ -134,9 +134,9 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
         if len(all_erasures) > parity_count:
             spam_count += 1
             if spam_count <= 5:
-                logger.warning(f"Too many erasures in block {b}: {len(all_erasures)} > {parity_count}")
+                logger.debug(f"Too many erasures in block {b}: {len(all_erasures)} > {parity_count}")
             elif spam_count == 6:
-                logger.warning("RS: Further warnings suppressed for this window...")
+                logger.debug("RS: Further warnings suppressed for this window...")
             continue
             
         # Try to recover
