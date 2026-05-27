@@ -78,9 +78,15 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
             raw = recv.recv_one()
             if raw is None:
                 # Check for window timeouts if we have a manifest
-                if manifest and time.time() - last_packet > 30:
+                if manifest and time.time() - last_packet > 10:
                     _check_decode_ready(manifest, pooler, fdec, window_files,
                                         window_padding, window_data_chunks, progress, m_stats, t_start, force=True)
+
+                # IMPORTANT: Completion check must happen even if raw is None
+                if manifest:
+                    done = len([p for p in window_files.values() if p is not None])
+                    if done == manifest.total_windows:
+                        return _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_start)
                 continue
 
             last_packet = time.time()
@@ -205,14 +211,18 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
     r_total = sum(m_stats["rs_recovered_by_window"].values())
     e_total = sum(m_stats["failed_chunks_by_window"].values())
 
+    win_done = len([p for p in window_files.values() if p is not None])
+    # If all windows are decoded but not yet assembled, we are in 'verifying' state
+    status = "verifying" if (manifest and win_done == manifest.total_windows) else "decoding"
+
     state_writer.update_receiver(
-        windows_decoded=len([p for p in window_files.values() if p is not None]),
+        windows_decoded=win_done,
         total_packets_rx=progress.total_packets_rx if progress else 0,
         fountain_recovered_chunks=f_total,
         rs_recovered_chunks=r_total,
         failed_chunks=e_total,
         elapsed_s=time.time() - t_start,
-        status="decoding",
+        status=status,
     )
     
     del pool, result, recovered
