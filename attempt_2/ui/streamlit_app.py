@@ -37,6 +37,8 @@ def state_badge(state):
         "IDLE": "#808080",      # Grey
         "RECEIVING": "#0000FF", # Blue
         "DECODING": "#FFA500",  # Orange
+        "ENCODING_RS": "#00CED1", # DarkCyan
+        "SENDING": "#0000FF",   # Blue
         "VERIFYING": "#CCCC00", # Darker Yellow
         "ACCEPTED": "#008000",  # Green
         "FAILED": "#FF0000"     # Red

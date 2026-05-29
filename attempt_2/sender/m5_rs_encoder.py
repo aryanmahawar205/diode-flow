@@ -53,10 +53,14 @@ def encode_rs(chunks: list[bytes], config: RSConfig) -> list[bytes]:
             # Take a vertical slice (one byte from every chunk in the block)
             codeword = data_arr[:, j].tobytes()
             # Encode that byte-slice to get its ecc bytes
+            # Optimization: reedsolo can take bytes and return bytes
             ecc_bytes = codec.encode(codeword)[actual_block_size:]
             # Store the resulting ecc bytes vertically in the parity array
             parity_arr[:, j] = np.frombuffer(ecc_bytes, dtype=np.uint8)
         
+        if block_start % (block_size * 10) == 0:
+            logger.debug(f"RS encoded {block_start} chunks...")
+
         for p in range(parity_count):
             all_parity_chunks.append(parity_arr[p].tobytes())
 
