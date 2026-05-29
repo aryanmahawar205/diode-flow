@@ -75,7 +75,7 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
                 state_writer.set_overall_state("FAILED")
                 return False
 
-            raw = recv.recv_one()
+            raw = recv.recv_one(timeout=0.1)
             if raw is None:
                 # Check for window timeouts if we have a manifest
                 if manifest and time.time() - last_packet > 10:

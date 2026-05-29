@@ -78,9 +78,9 @@ class LTDecoder(IFountainDecoder):
                     continue
 
                 # numpy XOR — performance critical
-                r_arr = np.frombuffer(pkt_payload[other_pi], dtype=np.uint8).copy()
+                # In-place XOR on the bytearray via a numpy view
+                r_arr = np.frombuffer(pkt_payload[other_pi], dtype=np.uint8)
                 r_arr ^= known_arr
-                pkt_payload[other_pi] = bytearray(r_arr.tobytes())
 
                 pkt_chunks[other_pi].discard(cid)   # O(1) set removal
 

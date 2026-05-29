@@ -16,13 +16,13 @@ MAX_K_TOTAL            = 10_000_000
 MAX_TRANSFER_SIZE      = 100 * 1024**3   # 100 GB
 MAX_PASSES             = 2               # never 3
 MAX_WINDOWS            = 50_000
-MAX_DEGREE             = 1024            # fountain packet degree cap
-MAX_RS_PARITY          = 128
+MAX_DEGREE             = 10000           # fountain packet degree cap
+MAX_RS_PARITY          = 255             # increased for better blocks
 
 # Timeouts
 MANIFEST_TIMEOUT_S = 30.0
-WINDOW_TIMEOUT_S   = 120.0
-TRANSFER_TIMEOUT_S = 7200.0
+WINDOW_TIMEOUT_S   = 300.0           # increased for large processing tasks
+TRANSFER_TIMEOUT_S = 14400.0         # 4 hours
 
 # Storage
 QUARANTINE_DIR = "demo_output/quarantine"
@@ -32,38 +32,38 @@ WINDOWS_TMP    = "demo_output/windows_tmp"
 # UDP
 DEFAULT_PORT        = 20000
 DEFAULT_ADDRESS     = "127.0.0.1"
-UDP_RECV_BUFFER     = 8 * 1024 * 1024   # 8MB OS recv buffer
-UDP_SEND_BUFFER     = 4 * 1024 * 1024   # 4MB OS send buffer
+UDP_RECV_BUFFER     = 64 * 1024 * 1024  # 64MB OS recv buffer
+UDP_SEND_BUFFER     = 16 * 1024 * 1024  # 16MB OS send buffer
 MAX_UDP_PAYLOAD     = 65507             # max UDP datagram
 
 # Transfer profiles
 PROFILES: dict[tuple[str, str], TransferProfile] = {
-    ("small",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=1.00,
-        rs_n=18, rs_k=2, interleave_depth=2, header_redundancy=3,
+    ("small",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.40,
+        rs_n=34, rs_k=2, interleave_depth=2, header_redundancy=3,
         window_size_bytes=16*1024*1024),
-    ("small",  "critical"):   TransferProfile(num_passes=2, overhead_ratio=1.20,
-        rs_n=20, rs_k=4, interleave_depth=3, header_redundancy=5,
+    ("small",  "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.40,
+        rs_n=36, rs_k=4, interleave_depth=3, header_redundancy=5,
         window_size_bytes=16*1024*1024),
-    ("small",  "classified"): TransferProfile(num_passes=2, overhead_ratio=1.50,
+    ("small",  "classified"): TransferProfile(num_passes=2, overhead_ratio=0.50,
         rs_n=40, rs_k=8, interleave_depth=4, header_redundancy=5,
         window_size_bytes=16*1024*1024),
     ("medium", "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.30,
-        rs_n=36, rs_k=4, interleave_depth=3, header_redundancy=3,
+        rs_n=66, rs_k=2, interleave_depth=3, header_redundancy=3,
         window_size_bytes=64*1024*1024),
     ("medium", "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.30,
-        rs_n=38, rs_k=6, interleave_depth=4, header_redundancy=5,
+        rs_n=68, rs_k=4, interleave_depth=4, header_redundancy=5,
         window_size_bytes=64*1024*1024),
     ("medium", "classified"): TransferProfile(num_passes=2, overhead_ratio=0.35,
-        rs_n=40, rs_k=8, interleave_depth=5, header_redundancy=5,
+        rs_n=72, rs_k=8, interleave_depth=5, header_redundancy=5,
         window_size_bytes=64*1024*1024),
-    ("large",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.20,
-        rs_n=68, rs_k=4, interleave_depth=4, header_redundancy=3,
+    ("large",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.30,
+        rs_n=130, rs_k=2, interleave_depth=4, header_redundancy=3,
         window_size_bytes=128*1024*1024),
-    ("large",  "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.20,
-        rs_n=70, rs_k=6, interleave_depth=6, header_redundancy=5,
+    ("large",  "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.30,
+        rs_n=132, rs_k=4, interleave_depth=6, header_redundancy=5,
         window_size_bytes=128*1024*1024),
-    ("large",  "classified"): TransferProfile(num_passes=2, overhead_ratio=0.25,
-        rs_n=72, rs_k=8, interleave_depth=8, header_redundancy=5,
+    ("large",  "classified"): TransferProfile(num_passes=2, overhead_ratio=0.35,
+        rs_n=136, rs_k=8, interleave_depth=8, header_redundancy=5,
         window_size_bytes=128*1024*1024),
 }
 
