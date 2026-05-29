@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class LTDecoder(IFountainDecoder):
 
     def decode(self, packets: list[EncodedPacket], K_prime: int,
-               max_degree: int = 50) -> DecodeResult:
+               max_degree: int = 1024) -> DecodeResult:
         if K_prime <= 0:
             raise ValueError(f"K_prime must be positive, got {K_prime}")
 

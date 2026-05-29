@@ -10,6 +10,7 @@ import random
 import logging
 import numpy as np
 from common.models import EncodedPacket
+from common.config import MAX_DEGREE
 from fountain.interface import IFountainEncoder, register_encoder
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class LTEncoder(IFountainEncoder):
 
         packets = []
         for pid in range(n_packets):
-            degree    = min(_sample_degree(cdf, rng), K_prime, 50)
+            degree    = min(_sample_degree(cdf, rng), K_prime, MAX_DEGREE)
             chunk_ids = sorted(rng.sample(range(K_prime), degree))
 
             # numpy XOR — this is the performance-critical line
