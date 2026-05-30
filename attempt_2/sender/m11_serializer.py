@@ -105,15 +105,97 @@ def deserialize_manifest(data: bytes) -> TransferManifest | None:
 
 
 def serialize_packet(pkt_dict: dict) -> bytes:
-    """pkt_dict comes from m10_packet_builder.attach_security()"""
-    return _frame(PACKET_VERSION, json.dumps(pkt_dict).encode())
+    """
+    Binary packet serialization.
+    Format:
+    - transfer_id: 8 bytes (truncated)
+    - window_id: I (4)
+    - pass_id: B (1)
+    - packet_id: I (4)
+    - seed: Q (8)
+    - degree: H (2)
+    - K_prime: I (4)
+    - padding_length: I (4)
+    - data_chunk_count: I (4)
+    - crc32c: I (4)
+    - blake3_mac: 32 bytes
+    - chunk_ids: H * degree (2 * degree)
+    - data: remaining bytes
+    """
+    tid_bin = pkt_dict["transfer_id"][:8].encode()
+    if len(tid_bin) < 8: tid_bin = tid_bin.ljust(8, b"\0")
+
+    degree = pkt_dict["degree"]
+    chunk_ids_fmt = f"{degree}H"
+
+    header = struct.pack(
+        ">8sIBIQHIIII32s",
+        tid_bin,
+        pkt_dict["window_id"],
+        pkt_dict["pass_id"],
+        pkt_dict["packet_id"],
+        pkt_dict["seed"],
+        degree,
+        pkt_dict["K_prime"],
+        pkt_dict["padding_length"],
+        pkt_dict["data_chunk_count"],
+        pkt_dict["crc32c"],
+        pkt_dict["blake3_mac"]
+    )
+
+    chunk_ids_bin = struct.pack(">" + chunk_ids_fmt, *pkt_dict["chunk_ids"])
+    payload = header + chunk_ids_bin + pkt_dict["data"]
+
+    return _frame(PACKET_VERSION, payload)
 
 
 def deserialize_packet(data: bytes) -> dict | None:
     payload = _unframe(data, PACKET_VERSION)
     if payload is None:
         return None
+
+    if len(payload) < 75: # Min header size without chunk_ids
+        return None
+
     try:
-        return json.loads(payload)
-    except json.JSONDecodeError:
+        header_len = 75
+        header = struct.unpack(">8sIBIQHIIII32s", payload[:header_len])
+
+        tid_bin          = header[0].decode(errors="replace").strip("\0")
+        window_id        = header[1]
+        pass_id          = header[2]
+        packet_id        = header[3]
+        seed             = header[4]
+        degree           = header[5]
+        K_prime          = header[6]
+        padding_length   = header[7]
+        data_chunk_count = header[8]
+        crc32c           = header[9]
+        blake3_mac       = header[10]
+
+        chunk_ids_start = header_len
+        chunk_ids_end = chunk_ids_start + (2 * degree)
+
+        chunk_ids_fmt = f">{degree}H"
+        chunk_ids = list(struct.unpack(chunk_ids_fmt, payload[chunk_ids_start:chunk_ids_end]))
+
+        pkt_data = payload[chunk_ids_end:]
+
+        return {
+            "transfer_id"      : tid_bin, # Note: this is only first 8 chars
+            "window_id"        : window_id,
+            "pass_id"          : pass_id,
+            "packet_id"        : packet_id,
+            "seed"             : seed,
+            "degree"           : degree,
+            "chunk_ids"        : chunk_ids,
+            "K_prime"          : K_prime,
+            "padding_length"   : padding_length,
+            "data_chunk_count" : data_chunk_count,
+            "data"             : pkt_data, # bytes
+            "crc32c"           : crc32c,
+            "blake3_mac"       : blake3_mac, # bytes
+        }
+    except Exception as e:
+        logger.debug(f"Packet deserialize error: {e}")
         return None

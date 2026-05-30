@@ -59,7 +59,7 @@ def attach_security(packet: EncodedPacket, transfer_id: str,
         "K_prime"          : packet.source_chunk_count,
         "padding_length"   : padding_length,
         "data_chunk_count" : data_chunk_count,
-        "data"             : packet.data.hex(),
+        "data"             : packet.data, # Keep as bytes
         "crc32c"           : crc,
-        "blake3_mac"       : mac.hex(),
+        "blake3_mac"       : mac, # Keep as bytes
     }

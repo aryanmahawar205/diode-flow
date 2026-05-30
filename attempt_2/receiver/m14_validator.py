@@ -57,8 +57,8 @@ def validate_packet_dict(d: dict, manifest: TransferManifest,
         if not 1 <= d["degree"] <= MAX_DEGREE:
             return False, f"degree {d['degree']} out of range"
 
-        # Transfer ID match
-        if d["transfer_id"] != manifest.transfer_id:
+        # Transfer ID match (binary format uses truncated ID)
+        if not manifest.transfer_id.startswith(d["transfer_id"]):
             return False, "transfer_id mismatch"
 
         # Window bounds

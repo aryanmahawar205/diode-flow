@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 import os
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from common import state_writer
 from common.config import (DEFAULT_PORT, DEFAULT_ADDRESS, QUARANTINE_DIR,
@@ -46,6 +48,11 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
     pooler = Pooler()
     fdec   = FountainDecoder()
 
+    # Thread pool for non-blocking decoding
+    executor = ThreadPoolExecutor(max_workers=4)
+    # Lock for protecting shared receiver state
+    state_lock = threading.Lock()
+
     manifest    : TransferManifest | None = None
     record      : TransferRecord  | None = None
     window_files: dict[int, Path]         = {}
@@ -80,11 +87,13 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
                 # Check for window timeouts if we have a manifest
                 if manifest and time.time() - last_packet > 10:
                     _check_decode_ready(manifest, pooler, fdec, window_files,
-                                        window_padding, window_data_chunks, progress, m_stats, t_start, force=True)
+                                        window_padding, window_data_chunks, progress, m_stats, t_start,
+                                        executor, state_lock, force=True)
 
                 # IMPORTANT: Completion check must happen even if raw is None
                 if manifest:
-                    done = len([p for p in window_files.values() if p is not None])
+                    with state_lock:
+                        done = len([p for p in window_files.values() if p is not None])
                     if done == manifest.total_windows:
                         return _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_start)
                 continue
@@ -126,7 +135,7 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
                     seed               = pkt_dict["seed"],
                     degree             = pkt_dict["degree"],
                     chunk_ids          = pkt_dict["chunk_ids"],
-                    data               = bytes.fromhex(pkt_dict["data"]),
+                    data               = pkt_dict["data"], # already bytes
                     source_chunk_count = pkt_dict["K_prime"],
                 )
             except (KeyError, ValueError):
@@ -144,16 +153,23 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
 
             if pooler.is_ready(manifest.transfer_id, wid, K_prime):
                 now = time.time()
-                last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
+                with state_lock:
+                    last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
+
                 # Throttle: only decode if it's the first time, OR it's been 5 seconds
                 # This prevents spinning CPU on every packet when we're close to recovery
                 if last_attempt == 0 or (now - last_attempt) > 5.0:
-                    _decode_and_store(manifest, wid, K_prime, pooler, fdec,
-                                      window_files, window_padding, window_data_chunks, progress, m_stats, t_start)
-                    m_stats["last_decode_attempt_time"][wid] = now
+                    with state_lock:
+                        m_stats["last_decode_attempt_time"][wid] = now
+
+                    # Submit to background executor
+                    executor.submit(_decode_and_store, manifest, wid, K_prime, pooler, fdec,
+                                   window_files, window_padding, window_data_chunks,
+                                   progress, m_stats, t_start, state_lock)
 
             # Check if all windows done
-            done = len([p for p in window_files.values() if p is not None])
+            with state_lock:
+                done = len([p for p in window_files.values() if p is not None])
             if manifest and done == manifest.total_windows:
                 return _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_start)
     except Exception as e:
@@ -164,13 +180,16 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
         return False
     finally:
         recv.close()
+        executor.shutdown(wait=False)
 
 
 def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
-                       window_files, window_padding, window_data_chunks, progress, m_stats, t_start):
+                       window_files, window_padding, window_data_chunks,
+                       progress, m_stats, t_start, state_lock):
     """Decode one window, verify, write to disk, free RAM."""
-    if wid in window_files:
-        return   # already done
+    with state_lock:
+        if wid in window_files:
+            return   # already done
 
     pool   = pooler.get_pool(manifest.transfer_id, wid)
     result = fdec.decode(pool, K_prime, manifest.chunk_size)
@@ -189,29 +208,31 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
     padding       = window_padding.get(wid, 0)
 
     # Update stats for THIS attempt (per-window)
-    m_stats["fountain_recovered_by_window"][wid] = result.recovered_count
-    m_stats["rs_recovered_by_window"][wid] = (missing_before_rs - missing_after_rs)
-    m_stats["failed_chunks_by_window"][wid] = sum(1 for c in recovered[:data_count] if c is None)
+    with state_lock:
+        m_stats["fountain_recovered_by_window"][wid] = result.recovered_count
+        m_stats["rs_recovered_by_window"][wid] = (missing_before_rs - missing_after_rs)
+        m_stats["failed_chunks_by_window"][wid] = sum(1 for c in recovered[:data_count] if c is None)
 
     path = write_window(wid, recovered, padding, data_count,
                         manifest.chunk_size, Path(WINDOWS_TMP))
 
-    if path is None:
-        logger.debug(f"Window {wid} decode incomplete, waiting for more packets")
-        # Do NOT clear pooler, DO NOT mark in window_files
-    else:
-        window_files[wid] = path
-        if progress:
-            progress.completed_windows += 1
-            progress.log(logger)
-        pooler.clear_window(manifest.transfer_id, wid)
+    with state_lock:
+        if path is None:
+            logger.debug(f"Window {wid} decode incomplete, waiting for more packets")
+            # Do NOT clear pooler, DO NOT mark in window_files
+        else:
+            window_files[wid] = path
+            if progress:
+                progress.completed_windows += 1
+                progress.log(logger)
+            pooler.clear_window(manifest.transfer_id, wid)
         
-    # Always update UI with aggregated stats
-    f_total = sum(m_stats["fountain_recovered_by_window"].values())
-    r_total = sum(m_stats["rs_recovered_by_window"].values())
-    e_total = sum(m_stats["failed_chunks_by_window"].values())
+        # Always update UI with aggregated stats
+        f_total = sum(m_stats["fountain_recovered_by_window"].values())
+        r_total = sum(m_stats["rs_recovered_by_window"].values())
+        e_total = sum(m_stats["failed_chunks_by_window"].values())
 
-    win_done = len([p for p in window_files.values() if p is not None])
+        win_done = len([p for p in window_files.values() if p is not None])
     # If all windows are decoded but not yet assembled, we are in 'verifying' state
     status = "verifying" if (manifest and win_done == manifest.total_windows) else "decoding"
 
@@ -228,12 +249,13 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
     del pool, result, recovered
 
 
-def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, window_data_chunks, progress, m_stats, t_start,
+def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, window_data_chunks, progress, m_stats, t_start, executor, state_lock,
                          force=False):
     """Check all windows that might be ready to decode."""
     for wid in range(manifest.total_windows):
-        if wid in window_files:
-            continue
+        with state_lock:
+            if wid in window_files:
+                continue
 
         # Don't try to decode windows that have no packets yet
         if pooler.count(manifest.transfer_id, wid) == 0:
@@ -257,11 +279,13 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
 
         if force or pooler.is_ready(manifest.transfer_id, wid, K_prime):
             now = time.time()
-            last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
+            with state_lock:
+                last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
             if force or last_attempt == 0 or (now - last_attempt) > 5.0:
-                _decode_and_store(manifest, wid, K_prime, pooler, fdec,
-                                  window_files, window_padding, window_data_chunks, progress, m_stats, t_start)
-                m_stats["last_decode_attempt_time"][wid] = now
+                with state_lock:
+                    m_stats["last_decode_attempt_time"][wid] = now
+                executor.submit(_decode_and_store, manifest, wid, K_prime, pooler, fdec,
+                                  window_files, window_padding, window_data_chunks, progress, m_stats, t_start, state_lock)
 
 
 def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_start) -> bool:
