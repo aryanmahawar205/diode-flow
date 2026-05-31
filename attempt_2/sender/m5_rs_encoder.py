@@ -102,18 +102,12 @@ def decode_rs(chunks_with_gaps: list[bytes | None], config: RSConfig,
     # Let D be total data chunks. D = total_chunks - n_blocks * parity_count.
     # n_blocks = (D + block_size - 1) // block_size
     
-    # We can iterate to find D:
-    D = 0
-    for n_b in range(1, total_chunks // parity_count + 1):
-        temp_D = total_chunks - n_b * parity_count
-        if temp_D > 0 and (temp_D + block_size - 1) // block_size == n_b:
-            D = temp_D
-            n_blocks = n_b
-            break
-    else:
-        # Fallback for 1 block or if logic above fails
-        n_blocks = 1
-        D = total_chunks - parity_count
+    # Fast mathematical determination of D and n_blocks
+    # Each block uses up to block_size data chunks and EXACTLY parity_count chunks.
+    # total_chunks = D + n_blocks * parity_count
+    # n_blocks = ceil(D / block_size)
+    n_blocks = (total_chunks + block_size - 1) // (block_size + parity_count)
+    D = total_chunks - n_blocks * parity_count
 
     data_chunks   = chunks_with_gaps[:D]
     parity_chunks = chunks_with_gaps[D:]

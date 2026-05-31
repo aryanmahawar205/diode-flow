@@ -1,0 +1,12 @@
+{
+  "transfer_id": "47b21450-3526-49bd-8b09-4ae8f085fe20",
+  "file_name": "small.txt",
+  "original_sha256": "ceebb2a573b5e0e36b9d7ddc62b93c353f302dbff63674b72f12478d142da651",
+  "received_at": 1780229377.402566,
+  "sender_node_id": "sender-001",
+  "classification": "standard",
+  "compression": "lz4",
+  "original_size_bytes": 1200,
+  "windows": 1,
+  "packets": 5
+}

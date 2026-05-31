@@ -288,7 +288,9 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
             now = time.time()
             with state_lock:
                 last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
-            if force or last_attempt == 0 or (now - last_attempt) > 5.0:
+
+            # Even if forced (timeout), don't spam the background worker more than once per 5s
+            if last_attempt == 0 or (now - last_attempt) > 5.0:
                 with state_lock:
                     m_stats["last_decode_attempt_time"][wid] = now
                 executor.submit(_decode_and_store, manifest, wid, K_prime, pooler, fdec,
