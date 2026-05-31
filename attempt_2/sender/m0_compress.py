@@ -52,7 +52,7 @@ def compress_file(input_path: str, output_path: str) -> CompressionResult:
             algorithm="none", original_sha256=sha, compressed_sha256=sha)
 
     original_size   = os.path.getsize(input_path)
-    original_sha256 = sha256_file(input_path)
+    original_sha256 = sha256_streaming(input_path)
 
     if not should_compress(input_path):
         shutil.copy2(input_path, output_path)

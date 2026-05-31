@@ -11,7 +11,7 @@ PROTOCOL_VERSION = "1.0.0"
 DEFAULT_CHUNK_SIZE = 1200
 
 # Hard limits — enforced before any decoder memory is allocated
-MAX_CHUNKS_PER_WINDOW  = 200_000
+MAX_CHUNKS_PER_WINDOW  = 1_000_000
 MAX_K_TOTAL            = 10_000_000
 MAX_TRANSFER_SIZE      = 100 * 1024**3   # 100 GB
 MAX_PASSES             = 2               # never 3
@@ -47,18 +47,18 @@ PROFILES: dict[tuple[str, str], TransferProfile] = {
     ("small",  "classified"): TransferProfile(num_passes=2, overhead_ratio=0.50,
         rs_n=40, rs_k=8, interleave_depth=4, header_redundancy=5,
         window_size_bytes=16*1024*1024),
-    ("medium", "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.30,
-        rs_n=66, rs_k=2, interleave_depth=3, header_redundancy=3,
-        window_size_bytes=64*1024*1024),
+    ("medium", "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.08,
+        rs_n=66, rs_k=2, interleave_depth=3, header_redundancy=2,
+        window_size_bytes=1024*1024*1024),
     ("medium", "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.30,
         rs_n=68, rs_k=4, interleave_depth=4, header_redundancy=5,
         window_size_bytes=64*1024*1024),
     ("medium", "classified"): TransferProfile(num_passes=2, overhead_ratio=0.35,
         rs_n=72, rs_k=8, interleave_depth=5, header_redundancy=5,
         window_size_bytes=64*1024*1024),
-    ("large",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.25,
-        rs_n=132, rs_k=4, interleave_depth=4, header_redundancy=3,
-        window_size_bytes=128*1024*1024),
+    ("large",  "standard"):   TransferProfile(num_passes=1, overhead_ratio=0.05,
+        rs_n=130, rs_k=2, interleave_depth=4, header_redundancy=2,
+        window_size_bytes=1024*1024*1024),
     ("large",  "critical"):   TransferProfile(num_passes=2, overhead_ratio=0.25,
         rs_n=132, rs_k=4, interleave_depth=6, header_redundancy=5,
         window_size_bytes=128*1024*1024),
@@ -84,7 +84,5 @@ def _size_cat(file_size: int) -> str:
 def get_window_size(file_size: int) -> int:
     """Proportional window sizing — small files = single window."""
     MB, GB = 1024*1024, 1024**3
-    if file_size < 64*MB:   return file_size   # single window, no split
-    if file_size < GB:      return 64*MB       # ~16 windows for 1GB
-    if file_size < 10*GB:   return 128*MB      # ~8 windows for 1GB
-    return 256*MB                               # for very large files
+    if file_size < 10*MB:   return file_size   # truly small
+    return GB                                   # use 1GB windows for everything else
