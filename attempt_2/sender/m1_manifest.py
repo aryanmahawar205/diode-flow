@@ -33,6 +33,17 @@ def generate_manifest(
     merkle_root     = global_root_streaming(compressed_path, chunk_size)
     mime, _         = mimetypes.guess_type(compress_result.compressed_path)
 
+    # FIX H: Compute chunk count for each window
+    window_chunk_counts = []
+    for wid in range(total_windows):
+        if wid < total_windows - 1:
+            win_chunks = window_size // chunk_size
+        else:
+            # Last window may be smaller
+            prev_total = (total_windows - 1) * (window_size // chunk_size)
+            win_chunks = total_chunks - prev_total
+        window_chunk_counts.append(win_chunks)
+
     manifest = TransferManifest(
         transfer_id           = str(uuid.uuid4()),
         sender_node_id        = sender_node_id,
@@ -58,6 +69,7 @@ def generate_manifest(
         classification_level  = classification,
         expiration_policy     = 3600,
         ed25519_signature     = b"phase3_placeholder",
+        window_chunk_counts   = window_chunk_counts,
     )
 
     logger.info(f"Manifest: transfer={manifest.transfer_id[:8]}, "
