@@ -70,29 +70,33 @@ class LTEncoder(IFountainEncoder):
         chunk_size = len(chunks[0])
         n_packets  = math.ceil(K_prime * (1.0 + overhead_ratio))
 
-        # Pre-convert chunks to numpy arrays for fast XOR
+        # FIX A: numpy XOR - Pre-convert chunks to numpy arrays BEFORE the packet generation loop
+        # Do this once per encode() call, not per packet:
         np_chunks = [np.frombuffer(c, dtype=np.uint8) for c in chunks]
 
         cdf = _robust_soliton_cdf(K_prime, self._c, self._delta)
-        rng = random.Random(seed)   # instance — never global state
+        # FIX C: random.Random Instance (Not Global State)
+        # Create ONCE per encode() call, before the packet loop:
+        rng = random.Random(seed)
 
         packets = []
         for pid in range(n_packets):
             degree    = min(_sample_degree(cdf, rng), K_prime, MAX_DEGREE)
             chunk_ids = sorted(rng.sample(range(K_prime), degree))
 
-            # numpy XOR — this is the performance-critical line
+            # FIX A: Then inside the packet loop:
             payload = np_chunks[chunk_ids[0]].copy()
             for idx in chunk_ids[1:]:
                 payload ^= np_chunks[idx]
+            data = payload.tobytes()
 
             packets.append(EncodedPacket(
                 packet_id          = pid,
-                pass_id            = 0,          # caller sets actual pass_id
+                pass_id            = 0,          # pipeline sets actual pass_id
                 seed               = seed,
                 degree             = degree,
-                chunk_ids          = chunk_ids,  # stored explicitly
-                data               = payload.tobytes(),
+                chunk_ids          = chunk_ids,  # FIX B: store chunk_ids
+                data               = data,
                 source_chunk_count = K_prime,
             ))
 
