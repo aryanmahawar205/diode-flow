@@ -95,7 +95,7 @@ def run_sender(file_path: str, remote_addr: tuple,
         total_bytes_sent += len(manifest_bytes)
     logger.info(f"Manifest sent ×{profile.header_redundancy}")
 
-    # Step 7: Process and send windows ONE AT A TIME
+    # FIX E: One window at a time
     progress = TransferProgress(manifest.transfer_id,
                                 os.path.basename(file_path), n_windows)
 
@@ -147,7 +147,7 @@ def run_sender(file_path: str, remote_addr: tuple,
             total_packets_sent += 1
             total_bytes_sent += len(pkt_bytes)
 
-        # FREE MEMORY — critical for GB scale
+        # FIX E: FREE MEMORY — critical for GB scale
         del window_data, chunk_result, chunks_with_parity
         del encoded_pkts, passes, passes_list, interleaved
 

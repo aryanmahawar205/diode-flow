@@ -68,18 +68,14 @@ class WindowManifest:
 
 @dataclass
 class EncodedPacket:
-    """
-    One fountain-encoded packet.
-    chunk_ids MUST be stored explicitly — decoder reads directly.
-    Never re-derive chunk_ids in the decoder by re-running PRNG.
-    """
+    """FIX B — explicitly store chunk_ids."""
     packet_id          : int
     pass_id            : int
     seed               : int
     degree             : int
-    chunk_ids          : list[int]  # which source chunks were XOR'd
-    data               : bytes      # XOR'd payload
-    source_chunk_count : int        # K' = data chunks + RS parity chunks
+    chunk_ids          : list[int]   # ADD THIS — which chunks were XOR'd
+    data               : bytes
+    source_chunk_count : int         # K' = data chunks + RS parity chunks
 
 
 @dataclass
