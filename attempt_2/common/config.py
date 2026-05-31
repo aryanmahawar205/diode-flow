@@ -84,5 +84,5 @@ def _size_cat(file_size: int) -> str:
 def get_window_size(file_size: int) -> int:
     """Proportional window sizing — small files = single window."""
     MB, GB = 1024*1024, 1024**3
-    if file_size < GB:      return file_size   # single window up to 1GB
-    return GB                                   # 1GB windows for larger files
+    if file_size < 10*MB:   return file_size   # truly small
+    return GB                                   # use 1GB windows for everything else
