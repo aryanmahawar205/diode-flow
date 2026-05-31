@@ -16,8 +16,12 @@ SKIP_EXT = {'.jpg','.jpeg','.png','.gif','.mp4','.mkv','.avi','.mov',
 
 BLOCK = 64 * 1024 * 1024   # 64MB blocks — never load more than this
 
+# File types that don't benefit from compression
+SKIP_EXT = {'.jpg','.jpeg','.png','.gif','.mp4','.mkv','.avi','.mov',
+            '.zip','.gz','.bz2','.7z','.rar','.lz4','.zst','.mp3',
+            '.aac','.flac','.pdf'}
 
-def sha256_file(path: str) -> str:
+def sha256_streaming(path: str) -> str:
     """SHA-256 without loading whole file."""
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -40,7 +44,7 @@ def compress_file(input_path: str, output_path: str) -> CompressionResult:
     except ImportError:
         logger.warning("lz4 not installed — skipping compression. Run: pip install lz4")
         shutil.copy2(input_path, output_path)
-        sha = sha256_file(input_path)
+        sha = sha256_streaming(input_path)
         size = os.path.getsize(input_path)
         return CompressionResult(
             compressed_path=output_path, original_size=size,
@@ -63,7 +67,7 @@ def compress_file(input_path: str, output_path: str) -> CompressionResult:
             fout.write(chunk)
 
     comp_size   = os.path.getsize(output_path)
-    comp_sha256 = sha256_file(output_path)
+    comp_sha256 = sha256_streaming(output_path)
     ratio       = original_size / max(comp_size, 1)
 
     logger.info(f"Compressed {original_size/1024**2:.1f}MB → "
