@@ -141,6 +141,7 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
             except (KeyError, ValueError):
                 continue
 
+            # FIX F: Disk-backed window storage
             pooler.add(manifest.transfer_id, pkt_dict["window_id"], pkt)
             window_padding[pkt_dict["window_id"]] = pkt_dict["padding_length"]
             window_data_chunks[pkt_dict["window_id"]] = pkt_dict["data_chunk_count"]
@@ -186,7 +187,7 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
 def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
                        window_files, window_padding, window_data_chunks,
                        progress, m_stats, t_start, state_lock):
-    """Decode one window, verify, write to disk, free RAM."""
+    """FIX F: Decode one window, verify, write to disk, free RAM."""
     with state_lock:
         if wid in window_files:
             return   # already done
@@ -213,6 +214,7 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
         m_stats["rs_recovered_by_window"][wid] = (missing_before_rs - missing_after_rs)
         m_stats["failed_chunks_by_window"][wid] = sum(1 for c in recovered[:data_count] if c is None)
 
+    # FIX F: When each window is decoded and verified, write to disk:
     path = write_window(wid, recovered, padding, data_count,
                         manifest.chunk_size, Path(WINDOWS_TMP))
 
@@ -316,6 +318,7 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
 
     # Assemble compressed file
     compressed_out = Path(QUARANTINE_DIR) / f"{manifest.transfer_id[:8]}_compressed"
+    # FIX F: When all windows complete — stream-assemble from temp files:
     ok = assemble(window_files, manifest.total_windows,
                   compressed_out, manifest.file_sha256)
     if not ok:

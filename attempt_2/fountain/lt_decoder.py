@@ -69,18 +69,17 @@ class LTDecoder(IFountainDecoder):
             recovered[cid] = bytes(pkt_payload[pi])
             pkt_chunks[pi].clear()
 
-            known_arr = np.frombuffer(recovered[cid], dtype=np.uint8)
-
             for other_pi in list(chunk_to_pkts[cid]):
                 if other_pi == pi:
                     continue
                 if cid not in pkt_chunks[other_pi]:
                     continue
 
-                # numpy XOR — performance critical
-                # In-place XOR on the bytearray via a numpy view
-                r_arr = np.frombuffer(pkt_payload[other_pi], dtype=np.uint8)
-                r_arr ^= known_arr
+                # FIX A: Fast numpy XOR in the peeling loop
+                r = np.frombuffer(pkt_payload[other_pi], dtype=np.uint8).copy()
+                k = np.frombuffer(recovered[cid], dtype=np.uint8)
+                r ^= k
+                pkt_payload[other_pi] = bytearray(r.tobytes())
 
                 pkt_chunks[other_pi].discard(cid)   # O(1) set removal
 

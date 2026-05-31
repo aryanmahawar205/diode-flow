@@ -80,10 +80,11 @@ def _size_cat(file_size: int) -> str:
     if file_size < 1024**3:             return "medium"
     return "large"
 
+# FIX G: Window Size Proportional to File Size
 def get_window_size(file_size: int) -> int:
     """Proportional window sizing — small files = single window."""
     MB, GB = 1024*1024, 1024**3
-    if file_size < 64*MB:   return file_size  # single window
-    if file_size < GB:       return 64*MB
-    if file_size < 10*GB:   return 128*MB
-    return 256*MB
+    if file_size < 64*MB:   return file_size   # single window, no split
+    if file_size < GB:      return 64*MB       # ~16 windows for 1GB
+    if file_size < 10*GB:   return 128*MB      # ~8 windows for 1GB
+    return 256*MB                               # for very large files

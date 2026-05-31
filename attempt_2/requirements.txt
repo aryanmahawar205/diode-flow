@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:00876b27c731511fe0c860f067c65bd5f2e859b689c8863c1756e038d4166443
-size 183
+numpy
+reedsolo
+crcmod
+lz4>=4.3.2
+cryptography
+blake3
+protobuf
+psutil
+streamlit
