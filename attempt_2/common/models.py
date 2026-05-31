@@ -26,6 +26,7 @@ class TransferManifest:
     Complete transfer description. Sent before any data packets.
     file_size and file_sha256 refer to COMPRESSED bytes (in transit).
     original_size and original_sha256 refer to the file before compression.
+    FIX H: Store per-window chunk counts to avoid fallback miscalculation.
     """
     transfer_id           : str
     sender_node_id        : str
@@ -51,6 +52,7 @@ class TransferManifest:
     classification_level  : str    # "standard" | "critical" | "classified"
     expiration_policy     : int    # seconds
     ed25519_signature     : bytes  # signs all above fields
+    window_chunk_counts   : list[int] = None  # FIX H: K for each window [chunks for wid 0, 1, ...]
 
 
 @dataclass

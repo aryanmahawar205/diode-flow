@@ -74,6 +74,7 @@ def serialize_manifest(m: TransferManifest) -> bytes:
         "classification_level"  : m.classification_level,
         "expiration_policy"     : m.expiration_policy,
         "ed25519_signature"     : m.ed25519_signature.hex(),
+        "window_chunk_counts"   : m.window_chunk_counts or [],
     }
     return _frame(MANIFEST_VERSION, json.dumps(d).encode())
 
@@ -98,7 +99,8 @@ def deserialize_manifest(data: bytes) -> TransferManifest | None:
             creation_timestamp=d["creation_timestamp"],
             classification_level=d["classification_level"],
             expiration_policy=d["expiration_policy"],
-            ed25519_signature=bytes.fromhex(d["ed25519_signature"]))
+            ed25519_signature=bytes.fromhex(d["ed25519_signature"]),
+            window_chunk_counts=d.get("window_chunk_counts"))
     except (KeyError, ValueError, json.JSONDecodeError) as e:
         logger.debug(f"Manifest deserialize error: {e}")
         return None
@@ -119,14 +121,14 @@ def serialize_packet(pkt_dict: dict) -> bytes:
     - data_chunk_count: I (4)
     - crc32c: I (4)
     - blake3_mac: 32 bytes
-    - chunk_ids: H * degree (2 * degree)
+    - chunk_ids: I * degree (4 * degree)
     - data: remaining bytes
     """
     tid_bin = pkt_dict["transfer_id"][:8].encode()
     if len(tid_bin) < 8: tid_bin = tid_bin.ljust(8, b"\0")
 
     degree = pkt_dict["degree"]
-    chunk_ids_fmt = f"{degree}H"
+    chunk_ids_fmt = f"{degree}I"
 
     header = struct.pack(
         ">8sIBIQHIIII32s",
@@ -174,9 +176,9 @@ def deserialize_packet(data: bytes) -> dict | None:
         blake3_mac       = header[10]
 
         chunk_ids_start = header_len
-        chunk_ids_end = chunk_ids_start + (2 * degree)
+        chunk_ids_end = chunk_ids_start + (4 * degree)
 
-        chunk_ids_fmt = f">{degree}H"
+        chunk_ids_fmt = f">{degree}I"
         chunk_ids = list(struct.unpack(chunk_ids_fmt, payload[chunk_ids_start:chunk_ids_end]))
 
         pkt_data = payload[chunk_ids_end:]

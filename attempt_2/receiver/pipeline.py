@@ -197,15 +197,16 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
 
     # RS recovery
     missing_before_rs = sum(1 for c in result.chunks if c is None)
-    # Only log RS trigger if it's the first time for this window or we have more data
-    # (Actually, let's keep it simple for now)
 
     recovered = rs_recover(result.chunks, manifest, manifest.chunk_size)
     missing_after_rs = sum(1 for c in recovered if c is None)
 
-    # Compute actual data chunk count (K, not K')
-    parity_count  = manifest.rs_k
-    data_count    = window_data_chunks.get(wid, K_prime - parity_count)
+    # FIX H: Use window_chunk_counts from manifest if available
+    # Fallback to window_data_chunks dict (populated from packets) if not in manifest
+    if manifest.window_chunk_counts and wid < len(manifest.window_chunk_counts):
+        data_count = manifest.window_chunk_counts[wid]
+    else:
+        data_count = window_data_chunks.get(wid, K_prime - manifest.rs_k)
     padding       = window_padding.get(wid, 0)
 
     # Update stats for THIS attempt (per-window)
@@ -263,11 +264,15 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
         if pooler.count(manifest.transfer_id, wid) == 0:
             continue
 
-        # Calculate expected data chunks for this window
-        if wid < manifest.total_windows - 1:
-            win_data_chunks = manifest.window_size_bytes // manifest.chunk_size
+        # FIX H: Use window_chunk_counts from manifest if available
+        if manifest.window_chunk_counts and wid < len(manifest.window_chunk_counts):
+            win_data_chunks = manifest.window_chunk_counts[wid]
         else:
-            win_data_chunks = manifest.total_chunks - (manifest.total_windows - 1) * (manifest.window_size_bytes // manifest.chunk_size)
+            # Fallback: recalculate (though this may be inaccurate for last window)
+            if wid < manifest.total_windows - 1:
+                win_data_chunks = manifest.window_size_bytes // manifest.chunk_size
+            else:
+                win_data_chunks = manifest.total_chunks - (manifest.total_windows - 1) * (manifest.window_size_bytes // manifest.chunk_size)
 
         # Each block of RS_DATA_PER_BLOCK chunks gets manifest.rs_k parity chunks
         rs_data_per_block = manifest.rs_n - manifest.rs_k
