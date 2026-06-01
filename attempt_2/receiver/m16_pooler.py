@@ -34,8 +34,8 @@ class Pooler:
         return len(self._pools.get(transfer_id, {}).get(window_id, {}))
 
     def is_ready(self, transfer_id: str, window_id: int, K_prime: int) -> bool:
-        # Require 5% overhead + 2 packets to ensure LT success and natural trigger
-        if self.count(transfer_id, window_id) >= int(K_prime * 1.05) + 2:
+        # Require 30% overhead to ensure LT success and natural trigger
+        if self.count(transfer_id, window_id) >= int(K_prime * 1.30):
             return True
         idle = time.time() - self._activity.get(transfer_id, time.time())
         return idle > WINDOW_TIMEOUT_S

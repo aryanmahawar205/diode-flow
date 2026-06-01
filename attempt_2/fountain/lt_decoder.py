@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 class LTDecoder(IFountainDecoder):
 
-    def decode(self, packets: list[EncodedPacket], K_prime: int,
-               max_degree: int = 1024) -> DecodeResult:
+    def decode(self, packets: list[EncodedPacket], K_prime: int) -> DecodeResult:
         if K_prime <= 0:
             raise ValueError(f"K_prime must be positive, got {K_prime}")
 
@@ -28,7 +27,7 @@ class LTDecoder(IFountainDecoder):
                                 packets_used=0)
 
         # DoS guard: degree cap
-        safe = [p for p in packets if 1 <= p.degree <= max_degree]
+        safe = [p for p in packets if 1 <= p.degree <= K_prime]
         if not safe:
             return DecodeResult(chunks=[None]*K_prime, success=False,
                                 recovered_count=0,

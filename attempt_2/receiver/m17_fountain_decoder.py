@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class FountainDecoder:
-    def __init__(self, codec: str = "lt", max_degree: int = MAX_DEGREE):
+    def __init__(self, codec: str = "lt"):
         self._decoder    = get_decoder(codec)
-        self._max_degree = max_degree
 
     def decode(self, pool: list[EncodedPacket], K_prime: int,
                chunk_size: int) -> DecodeResult:
@@ -29,8 +28,7 @@ class FountainDecoder:
                                 recovered_count=0, missing_ids=list(range(K_prime)),
                                 packets_used=0)
 
-        result = self._decoder.decode(pool, K_prime=K_prime,
-                                       max_degree=self._max_degree)
+        result = self._decoder.decode(pool, K_prime=K_prime)
         logger.info(f"Fountain decoded {result.recovered_count}/{K_prime} chunks "
                     f"from {result.packets_used} packets")
         return result

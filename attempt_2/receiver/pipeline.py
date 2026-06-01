@@ -67,7 +67,8 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
         "fountain_recovered_by_window": {}, # wid -> count
         "rs_recovered_by_window": {},      # wid -> count
         "failed_chunks_by_window": {},     # wid -> count
-        "last_decode_attempt_time": {}     # wid -> float
+        "last_decode_attempt_time": {},    # wid -> float
+        "last_attempted_pool_size": {}     # wid -> int
     }
 
     logger.info(f"Receiver listening on {bind_addr}:{port}")
@@ -154,14 +155,16 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
 
             if pooler.is_ready(manifest.transfer_id, wid, K_prime):
                 now = time.time()
+                current_size = pooler.count(manifest.transfer_id, wid)
                 with state_lock:
                     last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
+                    last_size = m_stats["last_attempted_pool_size"].get(wid, -1)
 
-                # Throttle: only decode if it's the first time, OR it's been 5 seconds
-                # This prevents spinning CPU on every packet when we're close to recovery
-                if last_attempt == 0 or (now - last_attempt) > 5.0:
+                # Throttle: only decode if pool has grown AND (it's first time OR it's been 5 seconds)
+                if current_size > last_size and (last_attempt == 0 or (now - last_attempt) > 5.0):
                     with state_lock:
                         m_stats["last_decode_attempt_time"][wid] = now
+                        m_stats["last_attempted_pool_size"][wid] = current_size
 
                     # Submit to background executor
                     executor.submit(_decode_and_store, manifest, wid, K_prime, pooler, fdec,
@@ -286,13 +289,16 @@ def _check_decode_ready(manifest, pooler, fdec, window_files, window_padding, wi
 
         if force or pooler.is_ready(manifest.transfer_id, wid, K_prime):
             now = time.time()
+            current_size = pooler.count(manifest.transfer_id, wid)
             with state_lock:
                 last_attempt = m_stats["last_decode_attempt_time"].get(wid, 0)
+                last_size = m_stats["last_attempted_pool_size"].get(wid, -1)
 
-            # Even if forced (timeout), don't spam the background worker more than once per 5s
-            if last_attempt == 0 or (now - last_attempt) > 5.0:
+            # Even if forced (timeout), only decode if pool has grown AND not spammed (5s)
+            if current_size > last_size and (last_attempt == 0 or (now - last_attempt) > 5.0):
                 with state_lock:
                     m_stats["last_decode_attempt_time"][wid] = now
+                    m_stats["last_attempted_pool_size"][wid] = current_size
                 executor.submit(_decode_and_store, manifest, wid, K_prime, pooler, fdec,
                                   window_files, window_padding, window_data_chunks, progress, m_stats, t_start, state_lock)
 

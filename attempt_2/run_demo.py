@@ -77,7 +77,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Data Diode Demo")
     p.add_argument("--file",        required=True,            help="File to transfer")
     p.add_argument("--security",    default="standard",       help="standard/critical/classified")
-    p.add_argument("--pps",         default=25000, type=int,  help="Packets per second")
+    p.add_argument("--pps",         default=10000, type=int,  help="Packets per second")
     p.add_argument("--port",        default=20000, type=int,  help="UDP port")
     p.add_argument("--timeout",     default=7200,  type=int,  help="Timeout in seconds")
     args = p.parse_args()

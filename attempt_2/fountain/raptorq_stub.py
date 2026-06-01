@@ -13,7 +13,7 @@ class RaptorQEncoder(IFountainEncoder):
         raise NotImplementedError("RaptorQ not yet implemented. Use 'lt'.")
 
 class RaptorQDecoder(IFountainDecoder):
-    def decode(self, packets, K_prime, max_degree=50):
+    def decode(self, packets, K_prime):
         raise NotImplementedError("RaptorQ not yet implemented. Use 'lt'.")
 
 register_encoder("raptorq", RaptorQEncoder)
