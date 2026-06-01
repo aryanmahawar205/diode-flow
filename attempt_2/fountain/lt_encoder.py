@@ -16,7 +16,7 @@ from fountain.interface import IFountainEncoder, register_encoder
 logger = logging.getLogger(__name__)
 
 
-def _robust_soliton_cdf(K: int, c: float = 0.03, delta: float = 0.02) -> list[float]:
+def _robust_soliton_cdf(K: int, c: float = 0.05, delta: float = 0.02) -> list[float]:
     """
     Correct Robust Soliton Distribution CDF.
     Standard formula: R = c * ln(K/delta) * sqrt(K)
@@ -68,8 +68,8 @@ class LTEncoder(IFountainEncoder):
 
         K_prime    = len(chunks)
         chunk_size = len(chunks[0])
-        # Add a constant 32 extra packets to the overhead to handle small (tail) windows/files
-        n_packets  = math.ceil(K_prime * (1.0 + overhead_ratio)) + 32
+        # Add a constant 32 extra packets to the overhead to handle small (tail) windows/files (have changed, comment needs to be updated)
+        n_packets  = math.ceil(K_prime * 1.45) + 64
 
         # FIX A: numpy XOR - Pre-convert chunks to numpy arrays BEFORE the packet generation loop
         # Do this once per encode() call, not per packet:

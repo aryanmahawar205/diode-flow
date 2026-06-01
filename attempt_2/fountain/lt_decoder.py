@@ -44,8 +44,9 @@ class LTDecoder(IFountainDecoder):
 
         for pi, pkt in enumerate(safe):
             valid = [c for c in pkt.chunk_ids if 0 <= c < K_prime]
-            if len(valid) != pkt.degree:
-                continue   # malformed — skip
+            # Only skip truly useless packets
+            if len(valid) == 0:
+                continue
             pkt_payload.append(bytearray(pkt.data))
             pkt_chunks.append(set(valid))
             cur_pi = len(pkt_payload) - 1
