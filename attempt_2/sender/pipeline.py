@@ -39,22 +39,25 @@ def run_sender(file_path: str, remote_addr: tuple,
     t_start = time.time()
     logger.info(f"=== SENDER START: {file_path} → {remote_addr} ===")
 
-    # Step 1: Profile
+    # Step 1: Original file profile
     file_size = os.path.getsize(file_path)
     profile   = select_profile(file_size, criticality)
-    win_size  = select_window_size(file_size)
     rs_config = RSConfig(n=profile.rs_n, k=profile.rs_k)
 
-    # Step 2: Compress (streaming — never loads whole file)
+    # Step 2: Compress
     with tempfile.NamedTemporaryFile(suffix=".lz4", delete=False) as tmp:
         compressed_path = tmp.name
 
     compress_result = compress_file(file_path, compressed_path)
     compressed_size = compress_result.compressed_size
 
+    # IMPORTANT:
+    # Windowing must be based on the ACTUAL file being transmitted.
+    win_size = select_window_size(compressed_size)
+
     # Step 3: Windows
-    windows    = compute_windows(compressed_size, win_size)
-    n_windows  = len(windows)
+    windows   = compute_windows(compressed_size, win_size)
+    n_windows = len(windows)
 
     # Step 4: Manifest
     original_file_name = os.path.basename(file_path)
@@ -109,6 +112,13 @@ def run_sender(file_path: str, remote_addr: tuple,
         chunk_id_offset = window.start_byte // DEFAULT_CHUNK_SIZE
         chunk_result    = chunk_window(window_data, DEFAULT_CHUNK_SIZE,
                                        chunk_id_offset)
+        # DEBUG
+        logger.error(
+            f"WINDOW {window.window_id}: "
+            f"bytes={len(window_data)} "
+            f"chunks={chunk_result.chunk_count} "
+            f"padding={chunk_result.padding_length}"
+)
 
         # RS encode
         state_writer.update_sender(

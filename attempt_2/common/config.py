@@ -82,7 +82,25 @@ def _size_cat(file_size: int) -> str:
 
 # FIX G: Window Size Proportional to File Size
 def get_window_size(file_size: int) -> int:
-    """Proportional window sizing — small files = single window."""
-    MB, GB = 1024*1024, 1024**3
-    if file_size < 10*MB:   return file_size   # truly small
-    return GB                                   # use 1GB windows for everything else
+    """
+    Window sizing is based on the ACTUAL transmitted size.
+
+    Small transfers:
+        single window
+
+    Medium transfers:
+        64MB windows
+
+    Large transfers:
+        1GB windows
+    """
+    MB = 1024 * 1024
+    GB = 1024 ** 3
+
+    if file_size <= 64 * MB:
+        return file_size
+
+    if file_size <= GB:
+        return 64 * MB
+
+    return GB

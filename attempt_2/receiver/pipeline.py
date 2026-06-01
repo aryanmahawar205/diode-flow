@@ -331,9 +331,21 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
 
     # Assemble compressed file
     compressed_out = Path(QUARANTINE_DIR) / f"{manifest.transfer_id[:8]}_compressed"
-    # FIX F: When all windows complete — stream-assemble from temp files:
-    ok = assemble(window_files, manifest.total_windows,
-                  compressed_out, manifest.file_sha256)
+
+    # DEBUG: show exact size of every reconstructed window
+    for wid in sorted(window_files):
+        p = window_files[wid]
+        logger.error(
+            f"WINDOW {wid} FILE SIZE = {p.stat().st_size}"
+        )
+
+    ok = assemble(
+        window_files,
+        manifest.total_windows,
+        compressed_out,
+        manifest.file_sha256
+    )
+    
     if not ok:
         msg = "File assembly failed"
         state_writer.add_error(msg)
