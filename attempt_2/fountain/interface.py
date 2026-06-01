@@ -21,8 +21,7 @@ class IFountainEncoder(ABC):
 
 class IFountainDecoder(ABC):
     @abstractmethod
-    def decode(self, packets: list[EncodedPacket], K_prime: int,
-               max_degree: int = 50) -> DecodeResult: ...
+    def decode(self, packets: list[EncodedPacket], K_prime: int) -> DecodeResult: ...
 
 def register_encoder(name: str, cls: type) -> None:
     if name in _ENCODERS:

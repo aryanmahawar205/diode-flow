@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class Receiver:
     def __init__(self, bind_addr: str = "0.0.0.0", port: int = DEFAULT_PORT):
         self._sock   = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, UDP_RECV_BUFFER)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 32 * 1024 * 1024)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind((bind_addr, port))
 
