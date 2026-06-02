@@ -68,14 +68,50 @@ def compress_file(input_path: str, output_path: str) -> CompressionResult:
 
     comp_size   = os.path.getsize(output_path)
     comp_sha256 = sha256_streaming(output_path)
-    ratio       = original_size / max(comp_size, 1)
 
-    logger.info(f"Compressed {original_size/1024**2:.1f}MB → "
-                f"{comp_size/1024**2:.1f}MB ({ratio:.1f}x ratio)")
+    # Compression gain ratio
+    # 1.0  = same size
+    # 2.0  = compressed to half
+    # 0.9  = became larger
+    ratio = original_size / max(comp_size, 1)
+
+    # Production optimization:
+    # If compression saves less than 2%,
+    # send raw instead.
+    if comp_size >= original_size * 0.98:
+        logger.info(
+            f"Compression skipped after test: "
+            f"{original_size/1024**2:.1f}MB → "
+            f"{comp_size/1024**2:.1f}MB "
+            f"(insufficient gain)"
+        )
+
+        os.remove(output_path)
+
+        return CompressionResult(
+            compressed_path=input_path,
+            algorithm="none",
+            original_size=original_size,
+            compressed_size=original_size,
+            compression_ratio=1.0,
+            original_sha256=original_sha256,
+            compressed_sha256=original_sha256,
+        )
+
+    logger.info(
+        f"Compressed {original_size/1024**2:.1f}MB → "
+        f"{comp_size/1024**2:.1f}MB ({ratio:.1f}x ratio)"
+    )
+
     return CompressionResult(
-        compressed_path=output_path, algorithm="lz4", original_size=original_size,
-        compressed_size=comp_size, compression_ratio=ratio,
-        original_sha256=original_sha256, compressed_sha256=comp_sha256)
+        compressed_path=output_path,
+        algorithm="lz4",
+        original_size=original_size,
+        compressed_size=comp_size,
+        compression_ratio=ratio,
+        original_sha256=original_sha256,
+        compressed_sha256=comp_sha256,
+    )
 
 
 def decompress_file(compressed_path: str, output_path: str,

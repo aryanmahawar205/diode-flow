@@ -55,7 +55,7 @@ def run_sender(file_path: str, remote_addr: tuple,
         compressed_path = tmp.name
 
     compress_result = compress_file(file_path, compressed_path)
-    compressed_size = compress_result.compressed_size
+    compressed_size = os.path.getsize(compress_result.compressed_path)
 
     # IMPORTANT:
     # Windowing must be based on the ACTUAL file being transmitted.
@@ -67,7 +67,7 @@ def run_sender(file_path: str, remote_addr: tuple,
 
     # Step 4: Manifest
     original_file_name = os.path.basename(file_path)
-    manifest       = generate_manifest(original_file_name, compressed_path, compress_result,
+    manifest       = generate_manifest(original_file_name, compress_result.compressed_path, compress_result,
                                        n_windows, win_size, profile, criticality, chunk_size=chunk_size)
     manifest_bytes = serialize_manifest(manifest)
 
@@ -112,7 +112,7 @@ def run_sender(file_path: str, remote_addr: tuple,
         t_win = time.time()
 
         # Read ONE window
-        window_data = read_window(Path(compressed_path), window)
+        window_data = read_window(Path(compress_result.compressed_path), window)
 
         # Chunk with global ID offset
         chunk_id_offset = window.start_byte // chunk_size
@@ -194,7 +194,8 @@ def run_sender(file_path: str, remote_addr: tuple,
         total_bytes_sent += len(footer)
 
     tx.close()
-    os.remove(compressed_path)
+    if (compress_result.algorithm != "none" and os.path.exists(compress_result.compressed_path)):
+        os.remove(compress_result.compressed_path)
 
     # MONITORING
     state_writer.update_sender(
