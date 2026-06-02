@@ -8,7 +8,7 @@ from common.models import TransferProfile
 PROTOCOL_VERSION = "1.0.0"
 
 # Chunk sizing: MTU(1500) - IP(20) - UDP(8) - metadata(~150) - protobuf(~50)
-DEFAULT_CHUNK_SIZE = 1200
+DEFAULT_CHUNK_SIZE = 8192
 
 # Hard limits — enforced before any decoder memory is allocated
 MAX_CHUNKS_PER_WINDOW  = 1_000_000
@@ -92,3 +92,30 @@ def get_window_size(file_size: int) -> int:
     # Large files:
     # use smaller independent decode windows
     return 256 * MB
+
+def get_chunk_size(file_size: int) -> int:
+    """
+    Adaptive chunk sizing.
+
+    Small files:
+        better fountain flexibility
+
+    Large files:
+        fewer chunks
+        fewer packets
+        smaller Tanner graph
+        faster encode/decode
+    """
+    MB = 1024 * 1024
+    GB = 1024 ** 3
+
+    if file_size <= 100 * MB:
+        return 4096
+
+    if file_size <= 1 * GB:
+        return 8192
+
+    if file_size <= 10 * GB:
+        return 16384
+
+    return 32768

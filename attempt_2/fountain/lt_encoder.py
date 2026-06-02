@@ -68,14 +68,9 @@ class LTEncoder(IFountainEncoder):
 
         K_prime    = len(chunks)
         chunk_size = len(chunks[0])
-        # Respect profile overhead ratio.
-        # Small transfers get a few extra packets.
-        n_packets = math.ceil(K_prime * (1.0 + overhead_ratio))
-
-        if K_prime < 1000:
-            n_packets += 64
-        elif K_prime < 10000:
-            n_packets += 32
+        
+        # Empirically required for reliable decoding
+        n_packets = math.ceil(K_prime * 1.45) + 64
 
         # FIX A: numpy XOR - Pre-convert chunks to numpy arrays BEFORE the packet generation loop
         # Do this once per encode() call, not per packet:

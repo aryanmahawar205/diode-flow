@@ -30,8 +30,10 @@ class Transmitter:
         self._ensure_socket()
         self._sock.sendto(data, addr)
         self._sent += 1
-        if self._gap:
-            time.sleep(self._gap)
+
+        # Batch throttling instead of sleeping every packet
+        if self._gap and self._sent % 1000 == 0:
+            time.sleep(self._gap * 1000)
 
     def send_transfer(self, addr: tuple, manifest_bytes: bytes,
                       header_redundancy: int,

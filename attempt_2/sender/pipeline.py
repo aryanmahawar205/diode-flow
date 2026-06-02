@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 from common import state_writer
-from common.config import DEFAULT_CHUNK_SIZE, QUARANTINE_DIR
+from common.config import DEFAULT_CHUNK_SIZE, QUARANTINE_DIR, get_chunk_size
 from common.models import TransferProgress
 from sender.m0_compress import compress_file
 from sender.m1_manifest import generate_manifest
@@ -39,10 +39,16 @@ def run_sender(file_path: str, remote_addr: tuple,
     t_start = time.time()
     logger.info(f"=== SENDER START: {file_path} → {remote_addr} ===")
 
-    # Step 1: Original file profile
-    file_size = os.path.getsize(file_path)
-    profile   = select_profile(file_size, criticality)
-    rs_config = RSConfig(n=profile.rs_n, k=profile.rs_k)
+    file_size  = os.path.getsize(file_path)
+    profile    = select_profile(file_size, criticality)
+    rs_config  = RSConfig(n=profile.rs_n, k=profile.rs_k)
+
+    chunk_size = get_chunk_size(file_size)
+
+    logger.info(
+        f"Selected chunk size: {chunk_size} bytes "
+        f"for file size {file_size/1024**2:.1f}MB"
+    )
 
     # Step 2: Compress
     with tempfile.NamedTemporaryFile(suffix=".lz4", delete=False) as tmp:
@@ -62,7 +68,7 @@ def run_sender(file_path: str, remote_addr: tuple,
     # Step 4: Manifest
     original_file_name = os.path.basename(file_path)
     manifest       = generate_manifest(original_file_name, compressed_path, compress_result,
-                                       n_windows, win_size, profile, criticality)
+                                       n_windows, win_size, profile, criticality, chunk_size=chunk_size)
     manifest_bytes = serialize_manifest(manifest)
 
     # MONITORING
@@ -109,8 +115,8 @@ def run_sender(file_path: str, remote_addr: tuple,
         window_data = read_window(Path(compressed_path), window)
 
         # Chunk with global ID offset
-        chunk_id_offset = window.start_byte // DEFAULT_CHUNK_SIZE
-        chunk_result    = chunk_window(window_data, DEFAULT_CHUNK_SIZE,
+        chunk_id_offset = window.start_byte // chunk_size
+        chunk_result    = chunk_window(window_data, chunk_size,
                                        chunk_id_offset)
         # DEBUG
         logger.info(
