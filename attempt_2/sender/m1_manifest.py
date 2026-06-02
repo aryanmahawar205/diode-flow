@@ -35,14 +35,19 @@ def generate_manifest(
 
     # FIX H: Compute chunk count for each window
     window_chunk_counts = []
+
+    remaining_bytes = compressed_size
+
     for wid in range(total_windows):
-        if wid < total_windows - 1:
-            win_chunks = window_size // chunk_size
-        else:
-            # Last window may be smaller
-            prev_total = (total_windows - 1) * (window_size // chunk_size)
-            win_chunks = total_chunks - prev_total
+        current_window_bytes = min(window_size, remaining_bytes)
+
+        win_chunks = (
+            current_window_bytes + chunk_size - 1
+        ) // chunk_size
+
         window_chunk_counts.append(win_chunks)
+
+        remaining_bytes -= current_window_bytes
 
     manifest = TransferManifest(
         transfer_id           = str(uuid.uuid4()),

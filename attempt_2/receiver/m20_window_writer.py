@@ -54,8 +54,11 @@ def write_window(
             else:
                 f.write(chunk)
 
-    logger.debug(
-        f"Window {window_id} written: {temp_path.stat().st_size} bytes"
+    logger.info(
+        f"WINDOW {window_id} WRITTEN | "
+        f"size={temp_path.stat().st_size} "
+        f"chunk_count={chunk_count} "
+        f"padding={padding_length}"
     )
 
     return temp_path

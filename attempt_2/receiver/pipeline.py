@@ -335,7 +335,7 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
     # DEBUG: show exact size of every reconstructed window
     for wid in sorted(window_files):
         p = window_files[wid]
-        logger.error(
+        logger.info(
             f"WINDOW {wid} FILE SIZE = {p.stat().st_size}"
         )
 

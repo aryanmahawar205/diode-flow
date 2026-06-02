@@ -113,7 +113,7 @@ def run_sender(file_path: str, remote_addr: tuple,
         chunk_result    = chunk_window(window_data, DEFAULT_CHUNK_SIZE,
                                        chunk_id_offset)
         # DEBUG
-        logger.error(
+        logger.info(
             f"WINDOW {window.window_id}: "
             f"bytes={len(window_data)} "
             f"chunks={chunk_result.chunk_count} "
