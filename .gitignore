@@ -20,8 +20,7 @@ venv.bak/
 # Large test data / datasets (IMPORTANT FOR YOU)
 # =========================
 test_files/
-attempt_2/demo_output/
-attempt_2/test_files/
+demo_output/
 data/
 datasets/
 *.bin
