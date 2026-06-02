@@ -1,0 +1,34 @@
+{
+  "transfer_id": "3a56b581-e50b-4301-b3e2-9a3f85c064c3",
+  "file_name": "1GB.bin",
+  "total_windows": 16,
+  "criticality": "standard",
+  "file_path": "test_files/1GB.bin",
+  "original_size_mb": 1024.0,
+  "compression_algorithm": "none",
+  "overall_state": "RECEIVING",
+  "sender": {
+    "windows_sent": 2,
+    "total_packets_sent": 24258,
+    "bytes_transmitted_mb": 192.88655853271484,
+    "compressed_size_mb": 1024.0,
+    "compression_ratio": 1.0,
+    "elapsed_s": 64.14370608329773,
+    "eta_str": "6.7min",
+    "status": "encoding_rs"
+  },
+  "receiver": {
+    "windows_decoded": 2,
+    "total_packets_rx": 22206,
+    "fountain_recovered_chunks": 16640,
+    "rs_recovered_chunks": 0,
+    "failed_chunks": 0,
+    "elapsed_s": 65.93289232254028,
+    "status": "decoding",
+    "sha256_match": null,
+    "storage_path": null
+  },
+  "warnings": [],
+  "errors": [],
+  "last_updated": 1780418596.0625024
+}
