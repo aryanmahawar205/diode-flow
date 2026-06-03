@@ -34,7 +34,7 @@ def write_window(
     # HARD SAFETY CHECK 2: missing data
     if any(c is None for c in chunks[:chunk_count]):
         missing = [i for i, c in enumerate(chunks[:chunk_count]) if c is None]
-        logger.error(
+        logger.info(
             f"Window {window_id}: {len(missing)} chunks still None — cannot write"
         )
         return None

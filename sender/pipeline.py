@@ -31,7 +31,8 @@ SHARED_KEY = b"x" * 32   # 32-byte key — replace with env var in production
 
 def run_sender(file_path: str, remote_addr: tuple,
                criticality: str = "standard",
-               packets_per_second: int = 10000) -> bool:
+               packets_per_second: int = 10000,
+               packet_loss_rate: float = 0.0) -> bool:
     """
     Stream file through the diode pipeline.
     Returns True on success.
@@ -93,7 +94,7 @@ def run_sender(file_path: str, remote_addr: tuple,
     )
 
     # Step 5: Transmitter
-    tx = Transmitter(packets_per_second)
+    tx = Transmitter(packets_per_second, packet_loss_rate)
     total_packets_sent = 0
     total_bytes_sent = 0
 

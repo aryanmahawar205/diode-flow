@@ -7,17 +7,26 @@ from __future__ import annotations
 import logging
 import socket
 import time
+import random
 from common.config import UDP_SEND_BUFFER, MAX_UDP_PAYLOAD
 
 logger = logging.getLogger(__name__)
 
 
 class Transmitter:
-    def __init__(self, packets_per_second: int = 10000):
-        self._pps  = packets_per_second
-        self._gap  = 1.0 / packets_per_second if packets_per_second > 0 else 0
+    def __init__(
+        self,
+        packets_per_second: int = 10000,
+        packet_loss_rate: float = 0.0,
+    ):
+        self._pps = packets_per_second
+        self._gap = 1.0 / packets_per_second if packets_per_second > 0 else 0
+
+        self._loss_rate = packet_loss_rate
+
         self._sock = None
         self._sent = 0
+        self._dropped = 0
 
     def _ensure_socket(self):
         if self._sock is None:
@@ -28,6 +37,10 @@ class Transmitter:
         if len(data) > MAX_UDP_PAYLOAD:
             raise ValueError(f"Packet too large: {len(data)} > {MAX_UDP_PAYLOAD}")
         self._ensure_socket()
+        if self._loss_rate > 0.0:
+            if random.random() < self._loss_rate:
+                self._dropped += 1
+                return
         self._sock.sendto(data, addr)
         self._sent += 1
 
@@ -63,11 +76,16 @@ class Transmitter:
         for _ in range(3):
             self.send_raw(addr, footer)
 
-        logger.info(f"Transmitted: {stats['packet_sends']:,} packets, "
-                    f"{stats['bytes_sent']/1024**2:.1f} MB")
+        logger.info(f"Transmitted={self._sent:,} "f"Dropped={self._dropped:,} "f"Loss={self._loss_rate*100:.1f}%")
         return stats
 
     def close(self):
+        logger.info(
+            f"Packet-loss simulator: "
+            f"dropped={self._dropped:,} "
+            f"sent={self._sent:,}"
+        )
+
         if self._sock:
             self._sock.close()
             self._sock = None
