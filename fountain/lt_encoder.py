@@ -69,8 +69,17 @@ class LTEncoder(IFountainEncoder):
         K_prime    = len(chunks)
         chunk_size = len(chunks[0])
         
-        # Empirically required for reliable decoding
+        # Empirically tuned packet budget.
+        # Slight reduction from 1.45 -> 1.40 to improve throughput COULD BE DONE AT A LATER STAGE
         n_packets = math.ceil(K_prime * 1.45) + 64
+
+        actual_overhead = (n_packets / K_prime) - 1.0
+
+        logger.info(
+            f"LT Encode | K'={K_prime:,} "
+            f"| packets={n_packets:,} "
+            f"| overhead={actual_overhead:.2%}"
+        )
 
         # FIX A: numpy XOR - Pre-convert chunks to numpy arrays BEFORE the packet generation loop
         # Do this once per encode() call, not per packet:
