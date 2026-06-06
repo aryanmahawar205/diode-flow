@@ -24,3 +24,7 @@
 7. Output files appear in:
 
    demo_output/storage/
+
+8. For Local CLI transfer, use the same CLI command:
+
+    python run_demo.py --file myfile.iso
