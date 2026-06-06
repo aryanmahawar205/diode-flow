@@ -12,6 +12,7 @@ __pycache__/
 .venv
 env/
 venv/
+deployment_env/
 ENV/
 env.bak/
 venv.bak/
