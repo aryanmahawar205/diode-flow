@@ -23,10 +23,11 @@ from sender.m9_interleaver import interleave_multipass
 from sender.m10_packet_builder import attach_security
 from sender.m11_serializer import serialize_manifest, serialize_packet
 from sender.m12_transmitter import Transmitter
+from common.security import PACKET_MAC_KEY
 
 logger = logging.getLogger(__name__)
 
-SHARED_KEY = b"x" * 32   # 32-byte key — replace with env var in production
+# SHARED_KEY = b"x" * 32   # 32-byte key — replace with env var in production
 
 
 def run_sender(file_path: str, remote_addr: tuple,
@@ -158,7 +159,7 @@ def run_sender(file_path: str, remote_addr: tuple,
                                         window.window_id,
                                         chunk_result.padding_length,
                                         chunk_result.chunk_count,
-                                        SHARED_KEY)
+                                        PACKET_MAC_KEY)
             pkt_bytes = serialize_packet(pkt_dict)
             tx.send_raw(remote_addr, pkt_bytes)
             total_packets_sent += 1

@@ -30,6 +30,7 @@ from receiver.m25_storage import store
 from sender.m11_serializer import deserialize_manifest, deserialize_packet
 from common.models import EncodedPacket
 from receiver.m15_auth import verify_packet_mac
+from common.security import PACKET_MAC_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +130,9 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
             if pkt_dict is None:
                 continue
 
-            SHARED_KEY = b"x" * 32
+            # SHARED_KEY = b"x" * 32
 
-            if not verify_packet_mac(pkt_dict, SHARED_KEY):
+            if not verify_packet_mac(pkt_dict, PACKET_MAC_KEY):
                 logger.warning(
                     f"Packet MAC verification failed "
                     f"(window={pkt_dict.get('window_id')}, "
