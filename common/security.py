@@ -4,7 +4,11 @@ import os
 
 DEFAULT_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
-PACKET_MAC_KEY = (
-    os.environ.get("DIODE_PACKET_KEY", DEFAULT_KEY)
-    .encode()
-)
+
+def get_packet_mac_key() -> bytes:
+    key = os.environ.get(
+        "DIODE_PACKET_KEY",
+        DEFAULT_KEY
+    )
+
+    return key.encode()

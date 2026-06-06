@@ -30,7 +30,7 @@ from receiver.m25_storage import store
 from sender.m11_serializer import deserialize_manifest, deserialize_packet
 from common.models import EncodedPacket
 from receiver.m15_auth import verify_packet_mac
-from common.security import PACKET_MAC_KEY
+from common.security import get_packet_mac_key
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,9 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
                     logger.info(
                         f"ED25519 SIGNATURE VERIFIED: transfer={m.transfer_id[:8]}"
                     )
+                    state_writer.update_security(
+                        manifest_verified=True
+                    )
                     record    = TransferRecord(m.transfer_id)
                     progress  = TransferProgress(m.transfer_id, m.file_name,
                                                  m.total_windows)
@@ -132,7 +135,7 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
 
             # SHARED_KEY = b"x" * 32
 
-            if not verify_packet_mac(pkt_dict, PACKET_MAC_KEY):
+            if not verify_packet_mac(pkt_dict, get_packet_mac_key()):
                 logger.warning(
                     f"Packet MAC verification failed "
                     f"(window={pkt_dict.get('window_id')}, "
@@ -141,6 +144,11 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
                 continue
 
             mac_verified_count += 1
+
+            if mac_verified_count % 100 == 0:
+                state_writer.update_security(
+                    mac_verified_packets=mac_verified_count
+                )
 
             if mac_verified_count % 10000 == 0:
                 logger.info(
@@ -251,6 +259,9 @@ def _decode_and_store(manifest, wid, K_prime, pooler, fdec,
             # Do NOT clear pooler, DO NOT mark in window_files
         else:
             window_files[wid] = path
+            state_writer.add_event(
+                f"Window {wid} decoded"
+            )   
             if progress:
                 progress.completed_windows += 1
                 progress.log(logger)
@@ -374,6 +385,10 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
         state_writer.add_error(msg)
         state_writer.set_overall_state("FAILED")
         return False
+    
+    state_writer.add_event(
+        "File assembly completed"
+    )
 
     # Verify compressed file
     if not verify_file(compressed_out, manifest):
@@ -381,6 +396,14 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
         state_writer.add_error(msg)
         state_writer.set_overall_state("FAILED")
         return False
+    
+    state_writer.update_security(
+        compressed_sha_verified=True
+    )
+
+    state_writer.add_event(
+        "Compressed SHA256 verified"
+    )
     
     logger.info(
     f"COMPRESSED FILE SHA-256 VERIFIED: {manifest.file_sha256[:16]}..."
@@ -396,14 +419,29 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
         state_writer.set_overall_state("FAILED")
         return False
     
+    state_writer.update_security(
+        original_sha_verified=True
+    )
+    
     logger.info(
     f"ORIGINAL FILE SHA-256 VERIFIED: {manifest.original_sha256[:16]}..."
+    )
+
+    state_writer.add_event(
+        "Original SHA256 verified"
+    )
+
+    state_writer.update_security(
+        original_sha_verified=True
     )
 
     # Store
     stats = {"windows": manifest.total_windows,
              "packets": progress.total_packets_rx if progress else 0}
     if store(final_out, storage_dir, manifest, stats):
+        state_writer.add_event(
+            "Transfer accepted"
+        )
         dest = Path(storage_dir) / manifest.file_name
         state_writer.update_receiver(
             windows_decoded=len([p for p in window_files.values() if p is not None]),

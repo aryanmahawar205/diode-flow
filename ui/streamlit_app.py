@@ -1,186 +1,518 @@
 import sys
-from pathlib import Path
 import os
 import json
+import subprocess
 import time
+from pathlib import Path
+from streamlit_autorefresh import st_autorefresh
+
 import streamlit as st
 
-# Add project root to sys.path so 'common' module can be found
 root_dir = Path(__file__).parent.parent
+
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 from common import state_writer
 
-# Absolute path for the state file
-STATE_FILE = str(root_dir / "demo_output" / "transfer_state.json")
+STATE_FILE = root_dir / "demo_output" / "transfer_state.json"
 
-# Page Config
 st.set_page_config(
-    page_title="Data Diode Monitor",
-    page_icon="🔒",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title="Data Diode Control Center",
+    page_icon="🛰️",
+    layout="wide"
 )
 
+st_autorefresh(
+    interval=1000,
+    key="diode_autorefresh"
+)
+
+# ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
+
 def load_state():
-    if not os.path.exists(STATE_FILE):
+    if not STATE_FILE.exists():
         return None
+
     try:
         with open(STATE_FILE, "r") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except Exception:
         return None
+
+
+def badge(text, color):
+    return (
+        f"<span style='padding:6px 12px;"
+        f"border-radius:6px;"
+        f"background:{color};"
+        f"color:white;"
+        f"font-weight:bold;'>"
+        f"{text}</span>"
+    )
+
 
 def state_badge(state):
     colors = {
-        "IDLE": "#808080",      # Grey
-        "RECEIVING": "#0000FF", # Blue
-        "DECODING": "#FFA500",  # Orange
-        "ENCODING_RS": "#00CED1", # DarkCyan
-        "SENDING": "#0000FF",   # Blue
-        "VERIFYING": "#CCCC00", # Darker Yellow
-        "ACCEPTED": "#008000",  # Green
-        "FAILED": "#FF0000"     # Red
+        "IDLE": "#666666",
+        "RECEIVING": "#1565c0",
+        "SENDING": "#1565c0",
+        "ENCODING_RS": "#00838f",
+        "DECODING": "#ef6c00",
+        "VERIFYING": "#f9a825",
+        "ACCEPTED": "#2e7d32",
+        "FAILED": "#c62828",
     }
-    color = colors.get(state, "#808080")
-    return f'<span style="background-color:{color}; color:white; padding:4px 8px; border-radius:4px; font-weight:bold;">{state}</span>'
 
-# Header
-st.title("Data Diode Monitor")
+    return badge(
+        state,
+        colors.get(state, "#666666")
+    )
+
 
 state = load_state()
 
-if not state or state.get("overall_state") == "IDLE":
-    st.markdown("### Waiting for transfer to begin...")
-    
-    # DIAGNOSTICS (only in IDLE/Missing state)
-    with st.expander("System Diagnostics"):
-        st.write(f"**Current Working Directory:** `{os.getcwd()}`")
-        st.write(f"**State File Path:** `{STATE_FILE}`")
-        st.write(f"**File Exists:** `{os.path.exists(STATE_FILE)}`")
-        if os.path.exists(STATE_FILE):
-            st.write("**File Content Snippet:**")
-            try:
-                with open(STATE_FILE, 'r') as f:
-                    st.code(f.read()[:500])
-            except Exception as e:
-                st.error(f"Error reading file: {e}")
+# ---------------------------------------------------------
+# HEADER
+# ---------------------------------------------------------
 
-    # Sidebar
-    with st.sidebar:
-        st.title("Controls")
-        if st.button("Clear State"):
-            state_writer.clear_state()
-            st.rerun()
-        st.divider()
-        st.info("Strictly one-way file transfer. The receiver process NEVER sends data back to the sender.")
-        st.caption("Protocol v1.0.0")
-else:
-    # Top bar info
-    transfer_id = state.get("transfer_id", "—")
-    file_name = state.get("file_name", "—")
-    overall_state = state.get("overall_state", "IDLE")
-    last_updated = state.get("last_updated", 0)
-    updated_ago = int(time.time() - last_updated)
+st.title("🛰️ Data Diode Control Center")
 
-    st.markdown(
-        f"**ID:** `{transfer_id[:8]}` | **File:** `{file_name}` | {state_badge(overall_state)} "
-        f"&nbsp;&nbsp;&nbsp; <small>Updated {updated_ago}s ago</small>",
-        unsafe_allow_html=True
+st.caption(
+    "One-Way Secure Transfer System"
+)
+
+st.divider()
+
+# ---------------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------------
+
+with st.sidebar:
+
+    st.header("Transfer Configuration")
+
+    file_path = st.text_input(
+        "Local File Path",
+        placeholder=r"D:\files\archive.iso"
     )
+
+    security_level = st.selectbox(
+        "Security Level",
+        ["standard", "critical", "classified"]
+    )
+
+    pps = st.number_input(
+        "Packets Per Second",
+        value=50000,
+        min_value=1000,
+        max_value=500000,
+        step=1000
+    )
+
+    loss = st.slider(
+        "Packet Loss Simulator",
+        0.0,
+        0.50,
+        0.0,
+        0.01
+    )
+
+    ui_key = st.text_input(
+        "BLAKE3 Key",
+        type="password"
+    )
+
+    start_transfer = st.button(
+        "🚀 START TRANSFER",
+        use_container_width=True
+    )
+
     st.divider()
 
-    col_send, col_recv = st.columns(2)
+    if st.button(
+        "🗑️ Clear Transfer State",
+        use_container_width=True
+    ):
+        state_writer.clear_state()
+        st.rerun()
 
-    # Sender Column
-    with col_send:
-        st.header("Sender")
-        s = state.get("sender", {})
-        status = s.get("status", "idle").upper()
-        st.markdown(f"Status: {state_badge(status)}", unsafe_allow_html=True)
-        
-        m1, m2 = st.columns(2)
-        m3, m4 = st.columns(2)
-        
-        orig_size = state.get("original_size_mb", 0)
-        comp_size = s.get("compressed_size_mb", 0)
-        ratio = s.get("compression_ratio", 1.0)
-        
-        m1.metric("Original Size", f"{orig_size:.1f} MB")
-        m2.metric("Compressed Size", f"{comp_size:.1f} MB", delta=f"{ratio:.1f}x")
-        m3.metric("Packets Sent", f"{s.get('total_packets_sent', 0):,}")
-        m4.metric("Data Transmitted", f"{s.get('bytes_transmitted_mb', 0):.1f} MB")
-        
-        total_win = state.get("total_windows", 1)
-        sent_win = s.get("windows_sent", 0)
-        progress = min(max(sent_win / (total_win or 1), 0.0), 1.0)
-        st.progress(progress)
-        
-        st.write(f"Windows: **{sent_win} / {total_win}** | Elapsed: **{s.get('elapsed_s', 0):.1f}s** | ETA: **{s.get('eta_str', '—')}**")
-        st.caption(f"Algo: {state.get('compression_algorithm', 'none')} | Criticality: {state.get('criticality', 'standard')}")
+    st.divider()
 
-    # Receiver Column
-    with col_recv:
-        st.header("Receiver")
-        r = state.get("receiver", {})
-        status = r.get("status", "idle").upper()
-        st.markdown(f"Status: {state_badge(status)}", unsafe_allow_html=True)
+    st.info(
+        "Receiver never transmits data back."
+    )
 
-        m1, m2 = st.columns(2)
-        m3, m4 = st.columns(2)
-        
-        total_win = state.get("total_windows", 1)
-        decoded_win = r.get("windows_decoded", 0)
-        
-        m1.metric("Packets Received", f"{r.get('total_packets_rx', 0):,}")
-        m2.metric("Windows Decoded", f"{decoded_win} / {total_win}")
-        m3.metric("Fountain Recovered", f"{r.get('fountain_recovered_chunks', 0):,}")
-        rs_rec = r.get("rs_recovered_chunks", 0)
-        m4.metric("RS Recovered", f"{rs_rec:,}", delta=f"{rs_rec}" if rs_rec > 0 else None, delta_color="inverse")
+    st.caption("Protocol v1.0")
 
-        progress = min(max(decoded_win / (total_win or 1), 0.0), 1.0)
-        st.progress(progress)
-        st.write(f"Windows: **{decoded_win} / {total_win}** | Elapsed: **{r.get('elapsed_s', 0):.1f}s**")
 
-        sha_match = r.get("sha256_match")
-        if sha_match is True:
-            st.success("✅ SHA-256 Verified")
-        elif sha_match is False:
-            st.error("❌ SHA-256 FAILED")
-        
-        storage_path = r.get("storage_path")
-        if storage_path:
-            st.write("Storage Path:")
-            st.code(storage_path)
+if start_transfer:
 
-    # Bottom Section: Errors and Warnings
-    errors = state.get("errors", [])
-    warnings = state.get("warnings", [])
+    if not file_path:
+        st.error("Please provide a file path")
+        st.stop()
 
-    if errors:
-        with st.expander(f"Errors ({len(errors)})", expanded=True):
-            for err in errors:
-                st.error(err)
+    if not os.path.exists(file_path):
+        st.error(f"File not found: {file_path}")
+        st.stop()
 
-    if warnings:
-        with st.expander(f"Warnings ({len(warnings)})", expanded=False):
-            for warn in warnings:
-                st.warning(warn)
+    env = os.environ.copy()
 
-    # Sidebar
-    with st.sidebar:
-        st.title("Controls")
-        if st.button("Clear State"):
-            state_writer.clear_state()
-            st.rerun()
-        st.divider()
-        st.info("Strictly one-way file transfer. The receiver process NEVER sends data back to the sender.")
-        st.caption("Protocol v1.0.0")
+    if ui_key.strip():
+        env["DIODE_PACKET_KEY"] = ui_key.strip()
 
-# Auto-refresh
-try:
-    time.sleep(1)
-    st.rerun()
-except Exception:
-    pass
+    cmd = [
+        sys.executable,
+        str(root_dir / "run_demo.py"),
+        "--file",
+        file_path,
+        "--security",
+        security_level,
+        "--pps",
+        str(pps),
+        "--loss",
+        str(loss),
+    ]
+
+    subprocess.Popen(
+        cmd,
+        cwd=root_dir,
+        env=env
+    )
+
+    st.success("Transfer started")
+    
+# ---------------------------------------------------------
+# NO ACTIVE TRANSFER
+# ---------------------------------------------------------
+
+if not state:
+
+    st.warning(
+        "State file not found."
+    )
+
+    st.stop()
+
+if state.get("overall_state") == "IDLE":
+
+    st.info(
+        "Waiting for transfer..."
+    )
+
+    if st.button(
+        "Clear State",
+        use_container_width=True
+    ):
+        state_writer.clear_state()
+
+    st.stop()
+
+# ---------------------------------------------------------
+# TOP STATUS
+# ---------------------------------------------------------
+
+transfer_id = state.get("transfer_id", "----")
+file_name = state.get("file_name", "----")
+overall_state = state.get("overall_state", "IDLE")
+
+last_updated = state.get("last_updated", 0)
+updated_ago = int(time.time() - last_updated)
+
+st.markdown(
+    f"""
+    **Transfer:** `{transfer_id[:8]}`
+
+    **File:** `{file_name}`
+
+    {state_badge(overall_state)}
+
+    Updated {updated_ago}s ago
+    """,
+    unsafe_allow_html=True
+)
+
+st.divider()
+
+# ---------------------------------------------------------
+# SECURITY DASHBOARD
+# ---------------------------------------------------------
+
+st.subheader("Security")
+
+sec1, sec2, sec3, sec4 = st.columns(4)
+
+security = state.get("security", {})
+
+sec1.metric(
+    "ED25519 Signature",
+    "Verified"
+    if security.get("manifest_verified")
+    else "Pending"
+)
+
+sec2.metric(
+    "BLAKE3-MAC Packets",
+    f"{security.get('mac_verified_packets',0):,}"
+)
+
+sec3.metric(
+    "Compressed SHA256",
+    "Verified"
+    if security.get("compressed_sha_verified")
+    else "Pending"
+)
+
+sec4.metric(
+    "Original SHA256",
+    "Verified"
+    if security.get("original_sha_verified")
+    else "Pending"
+)
+
+st.divider()
+
+# ---------------------------------------------------------
+# MAIN PANELS
+# ---------------------------------------------------------
+
+sender_col, receiver_col = st.columns(2)
+
+# ---------------------------------------------------------
+# SENDER
+# ---------------------------------------------------------
+
+with sender_col:
+
+    st.subheader("Sender")
+
+    sender = state.get("sender", {})
+
+    st.markdown(
+        state_badge(
+            sender.get(
+                "status",
+                "idle"
+            ).upper()
+        ),
+        unsafe_allow_html=True
+    )
+
+    c1, c2 = st.columns(2)
+    c3, c4 = st.columns(2)
+
+    c1.metric(
+        "Original Size",
+        f"{state.get('original_size_mb',0):.2f} MB"
+    )
+
+    c2.metric(
+        "Compressed Size",
+        f"{sender.get('compressed_size_mb',0):.2f} MB"
+    )
+
+    c3.metric(
+        "Packets Sent",
+        f"{sender.get('total_packets_sent',0):,}"
+    )
+
+    c4.metric(
+        "Data Sent",
+        f"{sender.get('bytes_transmitted_mb',0):.2f} MB"
+    )
+
+    total_windows = max(
+        state.get("total_windows", 1),
+        1
+    )
+
+    sent_windows = sender.get(
+        "windows_sent",
+        0
+    )
+
+    progress = min(
+        sent_windows / total_windows,
+        1.0
+    )
+
+    st.progress(progress)
+
+    st.write(
+        f"Windows: {sent_windows}/{total_windows}"
+    )
+
+    st.write(
+        f"Elapsed: {sender.get('elapsed_s',0):.1f}s"
+    )
+
+    st.write(
+        f"ETA: {sender.get('eta_str','-')}"
+    )
+
+# ---------------------------------------------------------
+# RECEIVER
+# ---------------------------------------------------------
+
+with receiver_col:
+
+    st.subheader("Receiver")
+
+    receiver = state.get(
+        "receiver",
+        {}
+    )
+
+    st.markdown(
+        state_badge(
+            receiver.get(
+                "status",
+                "idle"
+            ).upper()
+        ),
+        unsafe_allow_html=True
+    )
+
+    c1, c2 = st.columns(2)
+    c3, c4 = st.columns(2)
+
+    c1.metric(
+        "Packets Received",
+        f"{receiver.get('total_packets_rx',0):,}"
+    )
+
+    c2.metric(
+        "Windows Decoded",
+        receiver.get(
+            "windows_decoded",
+            0
+        )
+    )
+
+    c3.metric(
+        "Fountain Recovery",
+        receiver.get(
+            "fountain_recovered_chunks",
+            0
+        )
+    )
+
+    c4.metric(
+        "RS Recovery",
+        receiver.get(
+            "rs_recovered_chunks",
+            0
+        )
+    )
+
+    decoded = receiver.get(
+        "windows_decoded",
+        0
+    )
+
+    progress = min(
+        decoded / total_windows,
+        1.0
+    )
+
+    st.progress(progress)
+
+    sha = receiver.get(
+        "sha256_match"
+    )
+
+    if sha is True:
+        st.success(
+            "SHA256 Verified"
+        )
+
+    elif sha is False:
+        st.error(
+            "SHA256 Failed"
+        )
+
+    storage = receiver.get(
+        "storage_path"
+    )
+
+    if storage:
+        st.code(storage)
+
+st.divider()
+
+# ---------------------------------------------------------
+# HISTORY
+# ---------------------------------------------------------
+
+st.subheader("Transfer Information")
+
+left, right = st.columns(2)
+
+with left:
+
+    st.write(
+        f"Transfer ID: {transfer_id}"
+    )
+
+    st.write(
+        f"Classification: {state.get('criticality','standard')}"
+    )
+
+    st.write(
+        f"Compression: {state.get('compression_algorithm','none')}"
+    )
+
+with right:
+
+    st.write(
+        f"Windows: {state.get('total_windows',0)}"
+    )
+
+    st.write(
+        f"Overall State: {overall_state}"
+    )
+
+# ---------------------------------------------------------
+# WARNINGS
+# ---------------------------------------------------------
+
+warnings = state.get(
+    "warnings",
+    []
+)
+
+if warnings:
+
+    with st.expander(
+        f"Warnings ({len(warnings)})"
+    ):
+        for w in warnings:
+            st.warning(w)
+
+# ---------------------------------------------------------
+# ERRORS
+# ---------------------------------------------------------
+
+errors = state.get(
+    "errors",
+    []
+)
+
+if errors:
+
+    with st.expander(
+        f"Errors ({len(errors)})",
+        expanded=True
+    ):
+        for e in errors:
+            st.error(e)
+
+# ---------------------------------------------------------
+# AUTO REFRESH
+# ---------------------------------------------------------
+
+st.caption(
+    "Auto-refreshing every 1 second"
+)

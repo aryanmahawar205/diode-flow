@@ -69,10 +69,17 @@ def init_state(transfer_id, file_name, total_windows, criticality,
                 "elapsed_s": 0,
                 "status": "idle",
                 "sha256_match": None,
-                "storage_path": None
+                "storage_path": None,
+            },
+            "security": {
+                "manifest_verified": False,
+                "mac_verified_packets": 0,
+                "compressed_sha_verified": False,
+                "original_sha_verified": False
             },
             "warnings": [],
-            "errors": []
+            "errors": [],
+            "events": []
         }
         _write_state(state)
 
@@ -169,4 +176,49 @@ def clear_state():
             "warnings": [],
             "errors": []
         }
+        _write_state(state)
+
+def update_security(
+    manifest_verified=None,
+    mac_verified_packets=None,
+    compressed_sha_verified=None,
+    original_sha_verified=None,
+):
+    with LOCK:
+        state = _read_state()
+        if not state:
+            return
+
+        security = state.setdefault("security", {})
+
+        if manifest_verified is not None:
+            security["manifest_verified"] = manifest_verified
+
+        if mac_verified_packets is not None:
+            security["mac_verified_packets"] = mac_verified_packets
+
+        if compressed_sha_verified is not None:
+            security["compressed_sha_verified"] = compressed_sha_verified
+
+        if original_sha_verified is not None:
+            security["original_sha_verified"] = original_sha_verified
+
+        _write_state(state)
+
+
+def add_event(message):
+    with LOCK:
+        state = _read_state()
+
+        if not state:
+            return
+
+        events = state.get("events", [])
+
+        events.append(
+            f"[{time.strftime('%H:%M:%S')}] {message}"
+        )
+
+        state["events"] = events[-100:]
+
         _write_state(state)
