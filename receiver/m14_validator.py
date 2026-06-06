@@ -10,6 +10,7 @@ import time
 from common.config import (MAX_DEGREE, MAX_K_TOTAL, MAX_TRANSFER_SIZE,
                             MAX_PASSES, MAX_WINDOWS, MAX_RS_PARITY)
 from common.models import TransferManifest
+from common.crypto import verify_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,46 @@ def validate_manifest(m: TransferManifest) -> tuple[bool, str]:
     Returns (False, reason) if it fails.
     Called before allocating ANY decode resources.
     """
+    
+    manifest_dict = {
+    "transfer_id": m.transfer_id,
+    "sender_node_id": m.sender_node_id,
+    "protocol_version": m.protocol_version,
+    "file_name": m.file_name,
+    "file_size": m.file_size,
+    "file_sha256": m.file_sha256,
+    "original_size": m.original_size,
+    "original_sha256": m.original_sha256,
+    "compression_algorithm": m.compression_algorithm,
+    "chunk_size": m.chunk_size,
+    "total_chunks": m.total_chunks,
+    "total_windows": m.total_windows,
+    "window_size_bytes": m.window_size_bytes,
+    "rs_n": m.rs_n,
+    "rs_k": m.rs_k,
+    "num_passes": m.num_passes,
+    "overhead_ratio": m.overhead_ratio,
+    "interleave_depth": m.interleave_depth,
+    "merkle_root": m.merkle_root,
+    "mime_type": m.mime_type,
+    "creation_timestamp": m.creation_timestamp,
+    "classification_level": m.classification_level,
+    "expiration_policy": m.expiration_policy,
+    "window_chunk_counts": m.window_chunk_counts,
+}
+
+    if not verify_manifest(
+        manifest_dict,
+        m.ed25519_signature
+    ):
+        logger.warning("Manifest rejected: invalid Ed25519 signature")
+        return False, "invalid manifest signature"
+    
+    logger.info(
+    f"Manifest signature verified "
+    f"(transfer={m.transfer_id[:8]})"
+)
+
     checks = [
         (m.total_chunks   <= MAX_K_TOTAL,       f"total_chunks {m.total_chunks} > {MAX_K_TOTAL}"),
         (m.file_size      <= MAX_TRANSFER_SIZE,  f"file_size exceeds 100GB"),

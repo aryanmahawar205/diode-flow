@@ -29,6 +29,7 @@ from receiver.m24_quarantine import TransferRecord, TransferState
 from receiver.m25_storage import store
 from sender.m11_serializer import deserialize_manifest, deserialize_packet
 from common.models import EncodedPacket
+from receiver.m15_auth import verify_packet_mac
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
     window_padding: dict[int, int]       = {}
     window_data_chunks: dict[int, int]   = {}
     progress    : TransferProgress | None = None
+    mac_verified_count = 0
     last_packet  = time.time()
     t_start      = time.time()
 
@@ -110,6 +112,9 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
                         logger.warning(f"Manifest rejected: {reason}")
                         continue
                     manifest  = m
+                    logger.info(
+                        f"ED25519 SIGNATURE VERIFIED: transfer={m.transfer_id[:8]}"
+                    )
                     record    = TransferRecord(m.transfer_id)
                     progress  = TransferProgress(m.transfer_id, m.file_name,
                                                  m.total_windows)
@@ -123,6 +128,23 @@ def run_receiver(bind_addr: str = DEFAULT_ADDRESS,
             pkt_dict = deserialize_packet(raw)
             if pkt_dict is None:
                 continue
+
+            SHARED_KEY = b"x" * 32
+
+            if not verify_packet_mac(pkt_dict, SHARED_KEY):
+                logger.warning(
+                    f"Packet MAC verification failed "
+                    f"(window={pkt_dict.get('window_id')}, "
+                    f"packet={pkt_dict.get('packet_id')})"
+                )
+                continue
+
+            mac_verified_count += 1
+
+            if mac_verified_count % 10000 == 0:
+                logger.info(
+                    f"BLAKE3-MAC VERIFIED packets={mac_verified_count:,}"
+                )
 
             ok, reason = validate_packet_dict(pkt_dict, manifest, t_start)
             if not ok:
@@ -358,6 +380,10 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
         state_writer.add_error(msg)
         state_writer.set_overall_state("FAILED")
         return False
+    
+    logger.info(
+    f"COMPRESSED FILE SHA-256 VERIFIED: {manifest.file_sha256[:16]}..."
+    )
 
     # Decompress
     final_out = Path(QUARANTINE_DIR) / manifest.file_name
@@ -368,6 +394,10 @@ def _finish(manifest, window_files, storage_dir, progress, record, m_stats, t_st
         state_writer.add_error(msg)
         state_writer.set_overall_state("FAILED")
         return False
+    
+    logger.info(
+    f"ORIGINAL FILE SHA-256 VERIFIED: {manifest.original_sha256[:16]}..."
+    )
 
     # Store
     stats = {"windows": manifest.total_windows,

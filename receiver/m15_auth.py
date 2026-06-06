@@ -31,14 +31,21 @@ def verify_packet_mac(pkt_dict: dict, shared_secret: bytes) -> bool:
         seed             = pkt_dict["seed"]
         padding_length   = pkt_dict["padding_length"]
         data_chunk_count = pkt_dict["data_chunk_count"]
-        data             = bytes.fromhex(pkt_dict["data"])
-        expected_mac     = bytes.fromhex(pkt_dict["blake3_mac"])
+        data             = pkt_dict["data"]
+        expected_mac     = pkt_dict["blake3_mac"]
 
         meta_bytes = (f"{transfer_id}:{window_id}:{pass_id}:"
                       f"{packet_id}:{degree}:{seed}:"
                       f"{padding_length}:{data_chunk_count}").encode()
         mac_input  = meta_bytes + data
 
+        if packet_id == 0:
+            logger.info(
+                f"MAC CHECK: transfer_id={transfer_id} "
+                f"mac_len={len(expected_mac)} "
+                f"data_len={len(data)}"
+            )
+            
         actual_mac = compute_blake3_mac(mac_input, shared_secret)
         return hmac.compare_digest(actual_mac, expected_mac)
     except Exception as e:

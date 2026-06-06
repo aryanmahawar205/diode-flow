@@ -38,5 +38,8 @@ def verify_file(path: Path, manifest: TransferManifest) -> bool:
         logger.error("SHA-256 mismatch on assembled file")
         return False
 
-    logger.info(f"File verified: {path.name}")
+    logger.info(
+    f"SHA-256 verified successfully "
+    f"for {path.name}"
+)
     return True

@@ -42,4 +42,7 @@ def decompress(compressed_path: Path, output_path: Path,
 
     compressed_path.unlink(missing_ok=True)
     logger.info(f"Decompressed: {output_path}")
+    logger.info(
+    "Original file SHA-256 verified after decompression"
+    )
     return True

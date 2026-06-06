@@ -40,9 +40,11 @@ def attach_security(packet: EncodedPacket, transfer_id: str,
     Build full packet dict with security fields.
     MAC covers all metadata + payload.
     """
-    meta_bytes = (f"{transfer_id}:{window_id}:{packet.pass_id}:"
-                  f"{packet.packet_id}:{packet.degree}:{packet.seed}:"
-                  f"{padding_length}:{data_chunk_count}").encode()
+    short_tid = transfer_id[:8]
+
+    meta_bytes = (f"{short_tid}:{window_id}:{packet.pass_id}:"
+                f"{packet.packet_id}:{packet.degree}:{packet.seed}:"
+                f"{padding_length}:{data_chunk_count}").encode()
     mac_input  = meta_bytes + packet.data
 
     crc  = compute_crc32c(mac_input)
