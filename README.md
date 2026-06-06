@@ -1,126 +1,89 @@
 # DiodeFlow
 
-High-assurance one-way data transfer framework for secure environments using fountain codes, Reed-Solomon recovery, Merkle-tree verification, and hardware data diode integration.
+High-Assurance One-Way Data Transfer Framework for Air-Gapped and Secure Environments
 
 ---
 
 # Overview
 
-DiodeFlow is a secure, loss-resilient, one-way file transfer framework designed for deployment across hardware-enforced data diodes.
+DiodeFlow is a secure, loss-resilient, one-way file transfer framework designed for deployment across hardware-enforced data diodes and air-gapped systems.
 
-The project is built for environments where:
+The system enables reliable transfer of files from a lower-trust network to a higher-trust network without requiring acknowledgements, retransmissions, or any reverse communication path.
 
-- bidirectional communication is prohibited,
-- retransmission is impossible,
-- data integrity is critical,
-- and transfer reliability must be maintained despite packet loss.
+Unlike traditional protocols such as TCP, DiodeFlow is specifically designed for environments where:
 
-Traditional transfer protocols such as TCP are fundamentally incompatible with physical one-way links because they rely on acknowledgements and retransmissions.
+* Bidirectional communication is prohibited
+* Retransmission is impossible
+* Packet loss must be tolerated proactively
+* Data integrity is mandatory
+* Sender authentication is required
 
-DiodeFlow addresses this by combining:
-
-- Fountain Codes (LT / future RaptorQ),
-- Reed-Solomon forward error correction,
-- multi-pass probabilistic transmission,
-- interleaving,
-- Merkle-tree chunk verification,
-- cryptographic authentication,
-- and bounded receiver-side validation.
-
-The result is a modular transport pipeline capable of secure and resilient transfer over physically enforced one-way communication channels.
+DiodeFlow combines fountain coding, Reed-Solomon forward error correction, cryptographic authentication, integrity verification, and secure receiver-side validation into a single modular transfer pipeline.
 
 ---
 
 # Key Features
 
-## One-Way Communication Architecture
+## One-Way Transfer Architecture
 
-Designed specifically for hardware data diode environments.
+Designed specifically for physical data diode deployments.
 
-- No acknowledgements
-- No retransmissions
-- No reverse channel dependency
-- Receiver never transmits
+### Guarantees
 
----
-
-## Fountain Code Based Recovery
-
-Uses LT fountain codes (with future RaptorQ abstraction support) to recover from packet loss without retransmission.
-
-### Features
-
-- Probabilistic recovery
-- Rateless encoding
-- Configurable redundancy overhead
-- Multi-pass transmission with independent seeds
+* No acknowledgements
+* No retransmissions
+* No receiver-to-sender communication
+* Strict one-way data flow
 
 ---
 
-## Reed-Solomon Chunk Recovery
+## Fountain Code Recovery
 
-Adds deterministic chunk-level recovery on top of probabilistic fountain recovery.
+DiodeFlow uses LT Fountain Codes to provide probabilistic packet-loss recovery.
+
+### Benefits
+
+* Rateless encoding
+* Loss tolerance without retransmission
+* Recovery from arbitrary packet loss
+* Scalable redundancy control
+
+---
+
+## Reed-Solomon Forward Error Correction
+
+Additional deterministic protection layer on top of fountain coding.
 
 ### Protects Against
 
-- Unrecoverable chunk gaps
-- Burst-loss edge cases
-- Partial decode failures
+* Missing chunks
+* Decode edge cases
+* Burst packet loss
+* Partial recovery failures
 
 ---
 
 ## Multi-Pass Transmission
 
-Each transmission pass generates different encoded packets using independent seeds.
+Each pass generates independent encoded packets.
 
 ### Benefits
 
-- Resilience against correlated loss
-- Improved decode probability
-- Robust burst-loss recovery
+* Increased recovery probability
+* Better resilience against correlated loss
+* Improved burst-loss performance
 
 ---
 
 ## Packet Interleaving
 
-Transmission order is intentionally shuffled to distribute burst packet loss across logical chunk space.
+Packets are intentionally reordered before transmission.
 
-This significantly improves decode stability under real network conditions.
+### Benefits
 
----
-
-## Merkle Tree Integrity Verification
-
-Per-chunk cryptographic verification using Merkle trees.
-
-### Enables
-
-- Chunk-level integrity validation
-- Corruption localization
-- Hierarchical verification
-- Scalable integrity checks for large files
-
----
-
-## End-to-End SHA-256 Verification
-
-Final reconstructed file is verified against the original SHA-256 digest.
-
-### Ensures
-
-- Byte-perfect reconstruction
-- Final transfer integrity assurance
-
----
-
-## Authenticated Metadata
-
-Supports:
-
-- Ed25519 manifest signatures
-- BLAKE3 packet authentication
-- Replay protection
-- Trusted sender verification
+* Burst-loss mitigation
+* Improved decoder stability
+* Better packet distribution
 
 ---
 
@@ -130,249 +93,472 @@ Large files are divided into independently decodable windows.
 
 ### Benefits
 
-- Bounded memory usage
-- Scalable Tanner graph sizes
-- Lower decode latency
-- Production-scale transfer support
+* Bounded memory usage
+* Scalable transfers
+* Lower decode latency
+* Large-file support
 
 ---
 
-## Defensive Receiver Design
+## Merkle Tree Integrity Verification
 
-Receiver architecture is intentionally strict and bounded.
+Each window includes cryptographic integrity verification.
+
+### Enables
+
+* Chunk-level verification
+* Corruption detection
+* Hierarchical integrity validation
+* Scalable verification of large files
+
+---
+
+## End-to-End SHA-256 Validation
+
+Two levels of verification are performed:
+
+### Compressed File Verification
+
+Verifies the transmitted compressed payload.
+
+### Original File Verification
+
+Verifies the reconstructed file after decompression.
+
+This guarantees byte-perfect reconstruction.
+
+---
+
+## Ed25519 Manifest Authentication
+
+Transfer manifests are digitally signed.
+
+### Benefits
+
+* Sender authentication
+* Tamper detection
+* Trusted origin verification
+
+---
+
+## BLAKE3 Packet Authentication
+
+Every packet includes an authentication tag.
+
+### Benefits
+
+* Packet tampering detection
+* Early packet rejection
+* Fast verification
+
+---
+
+## Secure Receiver Pipeline
+
+Receiver architecture is intentionally defensive.
 
 ### Includes
 
-- Decoder hard limits
-- Bounded memory pools
-- Schema validation
-- Replay protection
-- Malformed packet rejection
-- Resource exhaustion mitigation
+* Packet validation
+* Replay protection
+* Cryptographic verification
+* Integrity verification
+* Quarantine staging
+* Secure storage acceptance
 
 ---
 
-# High-Level Architecture
+## Real-Time Monitoring Dashboard
+
+Streamlit-based monitoring interface.
+
+### Displays
+
+* Transfer progress
+* Sender status
+* Receiver status
+* Packet counts
+* Recovery statistics
+* ETA estimation
+* SHA verification results
+* Security status
+* Warnings and errors
+
+---
+
+# Security Model
+
+DiodeFlow performs verification in stages.
+
+| Stage                 | Trust Level          |
+| --------------------- | -------------------- |
+| Incoming UDP Traffic  | Untrusted            |
+| Packet Validation     | Structurally Trusted |
+| BLAKE3 Verification   | Authenticated        |
+| Manifest Verification | Sender Trusted       |
+| Merkle Verification   | Integrity Trusted    |
+| SHA-256 Verification  | File Trusted         |
+| Secure Storage        | Accepted             |
+
+---
+
+# Transfer Pipeline
+
+## Sender Pipeline
 
 ```text
-SENDER PIPELINE
-═══════════════════════════════════════
+File
+ │
+ ▼
+Compression
+ │
+ ▼
+Chunking
+ │
+ ▼
+Merkle Generation
+ │
+ ▼
+Reed-Solomon Encoding
+ │
+ ▼
+LT Fountain Encoding
+ │
+ ▼
+Multi-Pass Generation
+ │
+ ▼
+Packet Interleaving
+ │
+ ▼
+BLAKE3 Authentication
+ │
+ ▼
+UDP Transmission
+```
 
-[M0]  Transfer Manifest Generator
-[M1]  File Windowing Engine
-[M2]  File Analyzer & Chunker
-[M3]  Merkle Tree Builder
-[M4]  Reed-Solomon Encoder
-[M5]  Transfer Profile Selector
-[M6]  Fountain Encoder
-[M7]  Multi-Pass Generator
-[M8]  Packet Interleaver
-[M9]  Metadata + Auth Tag Generator
-[M10] Protocol Buffer Serializer
-[M11] Rate-Controlled UDP Transmitter
+## Receiver Pipeline
 
-                ↓
-      [ Physical Data Diode ]
-                ↓
-
-RECEIVER PIPELINE
-═══════════════════════════════════════
-
-[M12] UDP Receiver & Packet Buffer
-[M13] Packet Validator
-[M14] Authentication Verifier
-[M15] Multi-Pass Packet Pooler
-[M16] Fountain Decoder
-[M17] Reed-Solomon Decoder
-[M18] Merkle Chunk Verifier
-[M19] Window Reassembler
-[M20] File Reassembler
-[M21] SHA-256 + Merkle Root Verifier
-[M22] Quarantine Pipeline
-[M23] Secure Storage
+```text
+UDP Reception
+ │
+ ▼
+Packet Validation
+ │
+ ▼
+BLAKE3 Verification
+ │
+ ▼
+Manifest Authentication
+ │
+ ▼
+Fountain Decoding
+ │
+ ▼
+Reed-Solomon Recovery
+ │
+ ▼
+Window Assembly
+ │
+ ▼
+File Assembly
+ │
+ ▼
+SHA-256 Verification
+ │
+ ▼
+Decompression
+ │
+ ▼
+Final SHA-256 Verification
+ │
+ ▼
+Secure Storage
 ```
 
 ---
 
-# Why Fountain Codes?
+# Current Implemented Features
 
-In a one-way system:
+## Complete
 
-- Retransmission is impossible
-- Acknowledgements cannot exist
-- Packet loss must be tolerated proactively
-
-Fountain codes solve this by allowing the receiver to reconstruct the original data from any sufficiently large subset of encoded packets.
-
-DiodeFlow currently implements:
-
-- LT Codes
-
-### Planned
-
-- RaptorQ support through abstraction interfaces
-
----
-
-# Why Reed-Solomon + Fountain Codes?
-
-The two mechanisms protect different failure layers.
-
-| Mechanism | Protects Against |
-|---|---|
-| Fountain Codes | Packet-level stochastic loss |
-| Reed-Solomon | Chunk-level deterministic recovery |
-
-Layering both improves robustness significantly under real-world loss conditions.
-
----
-
-# Why Merkle Trees?
-
-A single end-to-end hash is insufficient for large-scale secure transfers.
-
-Merkle trees enable:
-
-- Chunk-level verification
-- Corruption localization
-- Hierarchical validation
-- Scalable integrity checking
-
-This allows corrupt chunks to be identified precisely instead of rejecting entire transfers blindly.
-
----
-
-# Trust Model
-
-DiodeFlow explicitly separates trust boundaries.
-
-| Stage | Trust Level |
-|---|---|
-| Source network | Untrusted |
-| Post-diode UDP input | Untrusted |
-| Post-packet validation | Structurally trusted |
-| Post-authentication | Authenticated |
-| Post-Merkle verification | Integrity trusted |
-| Post-quarantine | Policy trusted |
-| Secure storage | Fully trusted |
-
----
-
-# Security Design Goals
-
-- No reverse communication
-- Strong integrity guarantees
-- Sender authentication
-- Replay protection
-- Resource exhaustion resistance
-- Malformed packet rejection
-- Bounded decoder behavior
-- Cryptographic verification
-- Deterministic trust transitions
-
----
-
-# Planned Development Phases
-
-## Phase 1 — Core Transport
-
-- Chunking
-- LT encode/decode
-- UDP transport
-- Merkle verification
-- SHA validation
-
-## Phase 2 — Robustness
-
-- Windowing
-- Reed-Solomon
-- Multi-pass encoding
-- Interleaving
-- Loss simulation
-
-## Phase 3 — Security Hardening
-
-- Ed25519 authentication
-- BLAKE3 packet MACs
-- Decoder hard limits
-- Quarantine state machine
-
-## Phase 4 — Optimization
-
-- RaptorQ integration
-- Performance tuning
-- Hardware diode deployment
-
----
-
-# Project Status
-
-## Current Status
-
-- Architecture finalized
-- Software implementation in progress
-
-## Planned
-
-- Loopback software simulation
-- Loss-injection testing
-- Hardware diode integration
-- Real-world throughput evaluation
+* LT Fountain Codes
+* Reed-Solomon Recovery
+* Multi-Pass Transmission
+* Packet Interleaving
+* Sliding Windows
+* Merkle Trees
+* SHA-256 Verification
+* Ed25519 Signatures
+* BLAKE3 Packet MACs
+* Compression Pipeline
+* Real-Time Monitoring UI
+* Offline Deployment Support
+* Air-Gapped Operation
+* Packet Loss Simulation
+* Quarantine Storage
+* Secure Acceptance Pipeline
 
 ---
 
 # Technology Stack
 
-- Python
-- Protocol Buffers
-- UDP
-- Reed-Solomon FEC
-- LT Fountain Codes
-- SHA-256
-- Merkle Trees
-- Ed25519
-- BLAKE3
+* Python 3.11+
+* UDP
+* LT Fountain Codes
+* Reed-Solomon
+* SHA-256
+* Merkle Trees
+* Ed25519
+* BLAKE3
+* LZ4 Compression
+* Streamlit
 
 ---
 
 # Repository Structure
 
 ```text
-data_diode/
+diode-flow/
+│
 ├── common/
 ├── fountain/
 ├── sender/
 ├── receiver/
+├── ui/
+├── keys/
 ├── tests/
-├── simulate_diode.py
-└── README.md
+├── test_files/
+│
+├── wheelhouse/
+│
+├── run_demo.py
+├── requirements.txt
+│
+├── install_offline.sh
+├── start_sender.sh
+├── start_ui.sh
+│
+├── README.md
+└── LICENSE
 ```
+
+---
+
+# Installation
+
+## Online Development Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+# Offline Installation
+
+Designed for isolated and air-gapped environments.
+
+### Install
+
+```bash
+chmod +x *.sh
+
+./install_offline.sh
+```
+
+This creates a local virtual environment and installs all dependencies directly from the bundled wheelhouse.
+
+No internet connection is required.
+
+---
+
+# Running the System
+
+## Launch Monitoring Dashboard
+
+```bash
+./start_ui.sh
+```
+
+or
+
+```bash
+streamlit run ui/streamlit_app.py
+```
+
+---
+
+## Transfer a File
+
+```bash
+python run_demo.py \
+--file test_files/sample.bin
+```
+
+---
+
+## Additional Options
+
+```bash
+python run_demo.py \
+--file test_files/sample.bin \
+--security classified \
+--pps 50000 \
+--loss 0.10
+```
+
+### Parameters
+
+| Parameter  | Description                      |
+| ---------- | -------------------------------- |
+| --file     | File to transfer                 |
+| --security | standard / critical / classified |
+| --pps      | Packets per second               |
+| --loss     | Simulated packet loss            |
+| --port     | UDP port                         |
+| --timeout  | Transfer timeout                 |
+
+---
+
+# User Interface
+
+The monitoring dashboard provides:
+
+### Transfer Information
+
+* Transfer ID
+* File Name
+* Classification
+* Compression Algorithm
+
+### Sender Metrics
+
+* Original Size
+* Compressed Size
+* Packets Sent
+* Data Sent
+* ETA
+* Window Progress
+
+### Receiver Metrics
+
+* Packets Received
+* Windows Decoded
+* Fountain Recovery
+* Reed-Solomon Recovery
+* Storage Location
+
+### Security Dashboard
+
+* Ed25519 Verification
+* BLAKE3 Authentication Status
+* Compressed SHA-256 Validation
+* Original SHA-256 Validation
+
+### Operational Status
+
+* Active State
+* Warnings
+* Errors
+* Event Timeline
+
+---
+
+# Deployment on Air-Gapped Systems
+
+## Requirements
+
+* Python 3.11+
+* Local copy of repository
+* No internet connection required
+
+## Deployment Steps
+
+### Step 1
+
+Copy the entire repository to both systems.
+
+### Step 2
+
+Run:
+
+```bash
+./install_offline.sh
+```
+
+### Step 3
+
+Launch UI:
+
+```bash
+./start_ui.sh
+```
+
+### Step 4
+
+Start transfers through either:
+
+* CLI
+* Monitoring UI
+
+---
+
+# Testing
+
+Run:
+
+```bash
+python run_demo.py --file test_files/100MB.txt
+```
+
+Example loss simulation:
+
+```bash
+python run_demo.py \
+--file test_files/100MB.txt \
+--loss 0.15
+```
+
+---
+
+# Current Status
+
+## Status
+
+Production-ready prototype
+
+### Implemented
+
+* Secure one-way transfer
+* Cryptographic verification
+* Error correction
+* Monitoring dashboard
+* Offline deployment
+
+### Future Enhancements
+
+* RaptorQ support
+* Performance optimization
+* Hardware data diode integration
+* FPGA acceleration
+* Advanced telemetry
 
 ---
 
 # Disclaimer
 
-This project is intended for research, defensive security engineering, and secure systems experimentation.
+This project is intended for:
 
-It is not intended for offensive security usage.
+* Research
+* Defensive Security Engineering
+* Secure Systems Development
+* Air-Gapped Data Transfer Experiments
 
----
-
-# Future Work
-
-- RaptorQ integration
-- FPGA acceleration
-- Zero-copy packet pipeline
-- High-throughput NIC tuning
-- Multi-diode clustering
-- Secure audit journaling
-- Adaptive redundancy tuning
-- Real-time telemetry dashboards
+It is not intended for offensive security activities.
 
 ---
 
 # License
 
 MIT License
-
----
