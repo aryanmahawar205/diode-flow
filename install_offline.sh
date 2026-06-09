@@ -1,4 +1,4 @@
-python -m venv deployment_env
+python3 -m venv deployment_env
 
 source deployment_env/bin/activate
 

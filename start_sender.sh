@@ -1,6 +1,6 @@
 source deployment_env/bin/activate
 
-python sender_node.py \
+python3 sender_node.py \
     --file "$1" \
     --receiver-ip "$2" \
     --security "${3:-standard}" \

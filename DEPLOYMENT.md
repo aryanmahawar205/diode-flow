@@ -1,4 +1,4 @@
-1. Install Python 3.11
+1. Install Python 3.10
 
 2. Copy diode-flow folder
 
@@ -14,17 +14,24 @@
 
    ./start_ui.sh
 
-6. Transfer file:
+6. Open browser:
+
+   http://localhost:8501
+
+7. Start receiver node:
+
+   ./start_receiver.sh
+
+8. Start transfer:
 
    - Open UI
    - Enter file path
    - Select security level
+   - Configure PPS
+   - Configure packet loss simulation (optional)
+   - Optional BLAKE3 key
    - Click Start Transfer
 
-7. Output files appear in:
+9. Reconstructed files appear in:
 
    demo_output/storage/
-
-8. For Local CLI transfer, use the same CLI command:
-
-    python run_demo.py --file myfile.iso
