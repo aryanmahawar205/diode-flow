@@ -6,6 +6,7 @@ import os
 import sys
 
 from common import state_writer
+from common.network_utils import configure_neighbor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +35,18 @@ if __name__ == "__main__":
         "--receiver-ip",
         required=True,
         help="Receiver IP address"
+    )
+
+    p.add_argument(
+        "--receiver-mac",
+        required=True,
+        help="Receiver MAC address"
+    )
+
+    p.add_argument(
+        "--interface",
+        default="eth0",
+        help="Network interface"
     )
 
     p.add_argument(
@@ -71,6 +84,19 @@ if __name__ == "__main__":
         f"({file_size/1024**2:.2f} MB) "
         f"| security={args.security} "
         f"| pps={args.pps}"
+    )
+
+    configure_neighbor(
+        args.receiver_ip,
+        args.receiver_mac,
+        args.interface
+    )
+
+    logger.info(
+        f"Installing static neighbor: "
+        f"{args.receiver_ip} -> "
+        f"{args.receiver_mac} "
+        f"on {args.interface}"
     )
 
     ok = run_sender(

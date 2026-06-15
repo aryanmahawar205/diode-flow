@@ -120,6 +120,19 @@ with st.sidebar:
         0.01
     )
 
+    receiver_ip = st.text_input(
+    "Receiver IP"
+    )
+
+    receiver_mac = st.text_input(
+        "Receiver MAC"
+    )
+
+    interface = st.text_input(
+        "Interface",
+        value="eth0"
+    )
+
     ui_key = st.text_input(
         "BLAKE3 Key",
         type="password"
@@ -165,15 +178,19 @@ if start_transfer:
 
     cmd = [
         sys.executable,
-        str(root_dir / "run_demo.py"),
+        str(root_dir / "sender_node.py"),
         "--file",
         file_path,
+        "--receiver-ip",
+        receiver_ip,
+        "--receiver-mac",
+        receiver_mac,
+        "--interface",
+        interface,
         "--security",
         security_level,
         "--pps",
-        str(pps),
-        "--loss",
-        str(loss),
+        str(pps)
     ]
 
     subprocess.Popen(
