@@ -1,0 +1,29 @@
+{
+    "transfer_id": "352aec3e-40e4-4d56-b5a3-83be512e5749",
+    "sender_node_id": "sender-001",
+    "protocol_version": "1.0.0",
+    "file_name": "compressible.txt",
+    "file_size": 26853,
+    "file_sha256": "bab0e3953fb18bb0ed57284f0a77893d849dc52464bcd9ed810bf525f95e20a9",
+    "original_size": 6200000,
+    "original_sha256": "a3dd692f4102ce0418c87f94a1c31d5344f254707bc30d20a8eaa81586ba1953",
+    "compression_algorithm": "lz4",
+    "chunk_size": 4096,
+    "total_chunks": 7,
+    "total_windows": 1,
+    "window_size_bytes": 26853,
+    "rs_n": 40,
+    "rs_k": 8,
+    "num_passes": 2,
+    "overhead_ratio": 0.5,
+    "interleave_depth": 4,
+    "merkle_root": "aec83c88f42772f414e7a4a0db13271d2135e8732af33d0e695f08b7a5d4b3ce",
+    "mime_type": "application/octet-stream",
+    "creation_timestamp": 1782884100.7405035,
+    "classification_level": "classified",
+    "expiration_policy": 3600,
+    "ed25519_signature": "430b6069f77b9b097098ec358facbdb1cd3793e5122a122dc60af00c1ccf5b517fc0e451cf89377c521f74d84e6dcd11a7633cfb00171265a69b49bb5f1f0009",
+    "window_chunk_counts": [
+        7
+    ]
+}

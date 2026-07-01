@@ -13,6 +13,7 @@ from common.config import DEFAULT_CHUNK_SIZE, PROTOCOL_VERSION
 from sender.m0_compress import sha256_streaming
 from sender.m4_merkle import global_root_streaming
 from common.crypto import sign_manifest
+from common.debug_manifest import dump_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,11 @@ def generate_manifest(
     }
 
     manifest.ed25519_signature = sign_manifest(manifest_dict)
+
+    dump_manifest(
+        manifest_obj=manifest,
+        manifest_dict=manifest_dict
+    )
 
     logger.info(f"Manifest: transfer={manifest.transfer_id[:8]}, "
                 f"file={manifest.file_name}, "

@@ -10,6 +10,7 @@ import struct
 from io import BytesIO
 from common.models import TransferManifest, EncodedPacket
 import crcmod
+from common.debug_manifest import dump_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,19 @@ def serialize_manifest(m: TransferManifest) -> bytes:
         "ed25519_signature"     : m.ed25519_signature.hex(),
         "window_chunk_counts"   : m.window_chunk_counts or [],
     }
-    return _frame(MANIFEST_VERSION, json.dumps(d).encode())
+    # return _frame(MANIFEST_VERSION, json.dumps(d).encode())
+
+    payload = json.dumps(d).encode()
+
+    frame = _frame(MANIFEST_VERSION, payload)
+
+    dump_manifest(
+        manifest_obj=m,
+        manifest_dict=d,
+        framed_bytes=frame
+    )
+
+    return frame
 
 
 def deserialize_manifest(data: bytes) -> TransferManifest | None:
