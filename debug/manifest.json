@@ -1,5 +1,5 @@
 {
-    "transfer_id": "352aec3e-40e4-4d56-b5a3-83be512e5749",
+    "transfer_id": "14a7c65b-e668-401e-8d6c-bda7b0c7996f",
     "sender_node_id": "sender-001",
     "protocol_version": "1.0.0",
     "file_name": "compressible.txt",
@@ -19,10 +19,10 @@
     "interleave_depth": 4,
     "merkle_root": "aec83c88f42772f414e7a4a0db13271d2135e8732af33d0e695f08b7a5d4b3ce",
     "mime_type": "application/octet-stream",
-    "creation_timestamp": 1782884100.7405035,
+    "creation_timestamp": 1782989856.557372,
     "classification_level": "classified",
     "expiration_policy": 3600,
-    "ed25519_signature": "430b6069f77b9b097098ec358facbdb1cd3793e5122a122dc60af00c1ccf5b517fc0e451cf89377c521f74d84e6dcd11a7633cfb00171265a69b49bb5f1f0009",
+    "ed25519_signature": "661018efcc3301d05846699cd4ea317bfb5bd5d828909c81945c69fd0d60d5e3f984ef13bc6c65be44a3e7cf6da9a3955b42db27d2a6e9ddc2541d53930e0e0c",
     "window_chunk_counts": [
         7
     ]
